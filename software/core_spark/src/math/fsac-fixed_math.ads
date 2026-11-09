@@ -55,8 +55,7 @@ package Fsac.Fixed_Math
    with SPARK_Mode => On 
 is 
 
--- narrowing from the wide type
-
+   -- narrowing from the wide type
    function Saturate (X : Wide) return Q16
       with 
          Global => null,
@@ -64,8 +63,7 @@ is
             (if X > Wide (Q16'Last) then Saturate'Result = Q16'Last elsif X < Wide (Q16'First) then Saturate'Result = Q16'First else Wide (Saturate'Result) = X);
             -- converts a wide value Q16 with saturation
 
--- limiting 
-
+   -- limiting 
    function Clamp (X, Lo, Hi : Q16) return Q16
       with
          Global   => null,
@@ -77,8 +75,7 @@ is
             and then (if X > Hi then Clamp'Result = Hi);
             -- limit X to the closed interval [Lo, Hi]
 
--- arithmetic 
-
+   -- arithmetic 
    function Add_Sat (A, B : Q16) return Q16
       with
          Global   => null,
@@ -110,10 +107,9 @@ is
             Abs_Q'Result >= 0
             and then (if X >= 0 then Abs_Q'Result = X else Abs_Q'Result = -X);
 
--- conversion into physical subtypes (clamping)
--- these are the sanctioned way to enter a physical subtype from a general Q16 value. because the result type carries the range, the prover knows the bound at every later 
--- use without a separate check
-
+   -- conversion into physical subtypes (clamping)
+   -- these are the sanctioned way to enter a physical subtype from a general Q16 value. because the result type carries the range, the prover knows the bound at every later 
+   -- use without a separate check
    function To_Body_Rate (X : Q16) return Body_Rate
       with
          Global   => null,
