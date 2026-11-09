@@ -1,0 +1,119 @@
+--  ===========================================================================
+--  FSAC - Flight Stability Augmentation Computer
+--  ===========================================================================
+--  File        : software/core_spark/fsac_core.gpr
+--  Purpose     : Build, analysis and proof configuration of the SPARK core
+--  Tools       : GNAT (Community 2023 or later, or Alire gnat_native), GPRbuild, GNATprove
+
+-- WHAT THIS FILE IS
+   -- a GNAT project file, it tells the compiler where the sources are, which checks stay enabled, and how GNATprove is configured; it is a part of the configuration 
+   -- baseline: any change is a DAL-A change because it can change the generated object code or the strength of the proof 
+
+-- HOW TO USE
+   -- install the toolchain once (alire is the simplest route)
+      -- alr toolchain --select gnat_native gprbuild gnatprove 
+   -- compile (debug profile, assertions on)
+      -- gprbuild -P fsac_core.gpr -XFSAC_PROFILE=debug
+   -- compile (release profile, the one used for object-code verification)
+      -- gprbuild -P fsac_core.gpr -XFSAC_PROFILE=release
+   -- prove everything (flow analysis + proof, settings below):
+      -- gnatprove -P fsac_core.gpr
+   -- prove one unit while you work on it:
+      -- gnatprove -P fsac_core.gpr -u fsac-fixed_math.adb
+
+-- DESIGN CHOICES, WITH REASONS
+   -- 1. runtime checks stays ON in both profiles (no -gnatp, no -gnatn), the prover shows they can never fail; leaving them on means that if a hardware fault ever
+   -- corrupted a value, the check would still fire instead of the program continuing  with garbage 
+   -- 2. warning are errors (-gnatwe);a warning safety code is either a real defect or noise that hides a real defect, so neither is allowed to pass the build
+   -- 3. invalid-value checks (-gnatVa) catch uninitialized or corrupted scalars at the point of use; the proof covers the software logic, -gnatVa covers a value that
+   -- was damaged outside of it
+   -- 4. the release profile uses -01 and no inlining across units; DO-178C Level A requires showing that the object code matches the source (structural coverage
+   -- at object level, 6.4.4.2); higher optimization levels reorder and merge code and make that argument much harder 
+   -- 5. contracts (-gnata) are compiled in the debug profile so tests catch a contract violation immediately; the release image does not evaluate them: the proof
+   -- already establishes them, and executing them would add run time that the WCET budget does not include 
+   -- 6. stack usage (-fstack-usage) and call-graph information are emitted so verification/wcet/ can bound stack depth statically 
+
+-- PROOF SETTINGS
+--    --level=2     moderate effort, a good starting point; raise to 3 or 4 for a unit that does not prove (Fsac.Fixed_Math.Mul_Q is the first candidate)
+--    --report=all  list every check and how it was proved, so the output can be archived as DO-333 evidence
+--    --warnings=error, --counterexamples=on fail on a suspicious construct; show a failing example input when a check cannot be proved
+
+-- CONFIGURATION PRAGMAS (fsac.adc)
+   -- enabled in package Builder below; GNAT only applies this attribute when THIS project is the root of the build (gprbuild -P fsac_core.gpr or gnatprove -P fsac_core.gpr)
+   -- the test project (tests/fsac_tests.gpr) does not use it on purpose: the test program uses Ada.Text_IO, which the restriction forbid 
+
+-- KNOWN LIMITS OF THIS FILE
+   -- it builds for the host (x86_64) to support proof, MIL and SIL; the target (Arm Cortex-R52) build is a separate project that "with"s this one and adds the 
+   -- cross-compiler, runtime and linker settings 
+
+project Fsac_Core is
+
+   type Profile_Type is ("debug", "release");
+   Profile : Profile_Type := external ("FSAC_PROFILE", debug);
+
+   for Languages use ("Ada");
+
+    for Source_Dirs use
+     ("src",
+      "src/types",
+      "src/math",
+      "src/params",
+      "src/signal_mgmt",
+      "src/control",
+      "src/allocation",
+      "src/modes");
+
+      for Object_Dir use "../../build/core_spark/obj/" & Profile;
+
+      -- static library, linked into the partition images later 
+      for Library_Name use "fsac_core";
+      For Library_Kind use "static";
+      for Library_Dir use "../../build/core_spark/lib" & Profile;
+
+      -- compiler
+      package Compiler is
+
+      Common_Switches :=
+        ("-gnat2012",       --  Ada 2012 language mode
+         "-gnatwa",         --  all warnings
+         "-gnatwe",         --  warnings are errors
+         "-gnato",          --  overflow checks enabled
+         "-gnatVa",         --  validity checks on all scalar uses
+         "-gnatyM120",      --  style: maximum line length 120
+         "-gnatyb",         --  style: no trailing blanks
+         "-fstack-usage");  --  per-function stack figures
+
+      case Profile is
+         when "debug" =>
+            for Default_Switches ("Ada") use
+              Common_Switches & ("-g", "-O0", "-gnata");
+
+         when "release" =>
+            for Default_Switches ("Ada") use
+              Common_Switches & ("-g", "-O1", "-fno-inline");
+      end case;
+
+   end Compiler;
+
+   -- binder
+   package Binder is 
+      for Default_Switches ("Ada") use ("-Es"); 
+   end Binder;
+
+   -- builder
+   package Builder is
+      for Default_Switches ("Ada") use ("-s"); -- recompile if switches change
+      for Global_Configuration_Pragmas use "fsac.adc";
+   end Builder;
+
+   -- GNATprove
+   package Prove is
+      for Proof_Switches ("Ada") use 
+         ("--level=2",
+         "--report=all",
+         "--warnings=error",
+         "--counterexamples=on",
+         "--timeout=60",
+         "-j0");        
+   end Prove;
+end Fsac_Core;
