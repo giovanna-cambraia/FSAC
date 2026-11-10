@@ -49,7 +49,7 @@
 project Fsac_Core is
 
    type Profile_Type is ("debug", "release");
-   Profile : Profile_Type := external ("FSAC_PROFILE", debug);
+   Profile : Profile_Type := external ("FSAC_PROFILE", "debug");
 
    for Languages use ("Ada");
 
@@ -68,7 +68,7 @@ project Fsac_Core is
       -- static library, linked into the partition images later 
       for Library_Name use "fsac_core";
       For Library_Kind use "static";
-      for Library_Dir use "../../build/core_spark/lib" & Profile;
+      for Library_Dir use "../../build/core_spark/lib/" & Profile;
 
       -- compiler
       package Compiler is

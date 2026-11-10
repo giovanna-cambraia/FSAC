@@ -1,0 +1,20 @@
+# FSAC - Flight Stability Augmentation Computer
+# Manifesto Alire
+
+name = "fsac"
+description = "Flight Stability Augmentation Computer: SPARK stabilization core"
+version = "0.1.0-dev"
+
+authors = ["Cambraia"]
+maintainers = ["giovannacambraia8@gmail.com"]
+maintainers-logins = ["giovanna-cambraia"]
+
+licenses = "MIT"
+
+tags = ["spark", "avionics", "safety", "flight-control"]
+
+project-files = ["software/core_spark/fsac_core.gpr"]
+
+[configuration]
+disabled = true
+

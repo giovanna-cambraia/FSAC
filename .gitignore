@@ -3,3 +3,5 @@ build/
 *.ali
 obj/
 lib/
+alire/
+config/

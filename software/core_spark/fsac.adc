@@ -1,0 +1,100 @@
+--  ===========================================================================
+--  FSAC - Flight Stability Augmentation Computer
+--  ===========================================================================
+--  File        : software/core_spark/fsac.adc
+--  Purpose     : Configuration pragmas applied to every unit of the core
+--  Language    : GNAT configuration pragma file
+--  Assurance   : DO-178C Software Level A (target)
+--  Requirements: HLR-SUB-0001 .. HLR-SUB-0008 (placeholder IDs)
+
+-- WHAT THIS FILE IS
+   -- a configuration pragma file is read by the compiler and by GNATprove before any source unit, the pragmas here restrict the Ada
+   -- language to the subset the safety argument is built on; a unit that use a forbidden feature does not compile, so the restriction
+   -- cannot be forgotten, bypassed in one file, or removed without editing this file (which is under configuration control and 
+   -- independent review)
+
+-- HOW TO ENABLE
+   -- in fsac_core.gpr, inside "package Builder":
+      -- for Global_Configuraion_Pragmas use "fsac.adc"
+
+-- RESTRICTION TABLE
+   --    Restriction                  Why it is forbidden / required
+   --    ---------------------------  ------------------------------------------
+   --    No_Allocators                No "new". All memory is static (spec 3).
+   --    No_Implicit_Heap_Allocations The compiler may not hide a heap use.
+   --    No_Secondary_Stack           Returning unconstrained values would use
+   --                                 an invisible stack; stack bounds must be
+   --                                 provable from the source.
+   --    No_Unchecked_Deallocation    No deallocation, nothing to leak or reuse.
+   --    No_Recursion                 Stack depth and WCET must be bounded
+   --                                 statically. Also required by the spec.
+   --    No_Tasking                   Concurrency is provided by the ARINC 653
+   --                                 partitions, not by the language runtime.
+   --    No_Finalization              No hidden calls at scope exit.
+   --    No_Dispatch                  No dynamic dispatch: every call target is
+   --                                 known statically (coverage, WCET, proof).
+   --    No_Streams                   No serialization machinery in the image.
+   --    No_IO                        No file or console I/O in flight code.
+   --    No_Floating_Point            Inner-loop arithmetic is Q16 integers
+   --                                 (ADR-005). A stray Float would bring in FPU
+   --                                 state and rounding modes that the proof
+   --                                 does not model.
+   --    No_Access_Subprograms        No pointers to subprograms.
+   --    No_Local_Protected_Objects   (with No_Tasking) belt and braces.
+   --    No_Abort_Statements,
+   --    No_Asynchronous_Control,
+   --    No_Delay, No_Select_Statements
+   --                                 No asynchronous transfer of control and no
+   --                                 timing by language delay.
+   --    No_Wide_Characters           No Unicode machinery in the image.
+   --    No_Elaboration_Code          No code runs at program start. All
+   --                                 initial values are static data in the
+   --                                 image, so startup is deterministic and the
+   --                                 initial state is verifiable.
+   --    No_Exception_Handlers        No "exception when" blocks. Error handling
+   --                                 is by explicit status values and by
+   --                                 proving that checks cannot fail.
+   --    No_Exception_Propagation     If a run-time check ever fails (for
+   --                                 example after a hardware fault corrupts a
+   --                                 value), no exception unwinds the stack.
+   --                                 Control goes straight to the last-chance
+   --                                 handler, which must fail the lane silent
+   --                                 (kill the output enable and stop). This
+   --                                 turns an impossible event into the
+   --                                 behaviour the architecture expects from a
+   --                                 fail-silent LRU (ADR-001).
+
+-- THE LAST CHANCE HANDLER
+   -- With No_Exception_Propagation the runtime calls __gnat_last_chance_handler on a failed check, the host build uses the default
+   -- one; the target build (software/os/bsp) must provide its own that disables the actuator outputs through the FPGA output-enable 
+   -- register and halts the lane, that file is written in the BSP phase 
+
+-- PRAGMAS THAT ARE DELIBERATELY NOT HERE
+   -- * Normalize_Scalars: useful in test builds to expose uninitialized reads, but it changes the object code and duplicates what 
+   -- -gnatVa and the prover's flow analysis already do, not used in the release image 
+   -- * Profile (Ravenscar): the core is single-threaded; tasking is forbidden above 
+
+pragma Restrictions (No_Allocators);
+pragma Restrictions (No_Implicit_Heap_Allocations);
+pragma Restrictions (No_Secondary_Stack);
+pragma Restrictions (No_Unchecked_Deallocation);
+pragma Restrictions (No_Recursion);
+pragma Restrictions (No_Tasking);
+pragma Restrictions (No_Finalization);
+pragma Restrictions (No_Dispatch);
+pragma Restrictions (No_Streams);
+pragma Restrictions (No_IO);
+pragma Restrictions (No_Floating_Point);
+pragma Restrictions (No_Access_Subprograms);
+pragma Restrictions (No_Local_Protected_Objects);
+pragma Restrictions (No_Abort_Statements);
+pragma Restrictions (No_Asynchronous_Control);
+pragma Restrictions (No_Delay);
+pragma Restrictions (No_Select_Statements);
+pragma Restrictions (No_Wide_Characters);
+pragma Restrictions (No_Elaboration_Code);
+pragma Restrictions (No_Exception_Handlers);
+pragma Restrictions (No_Exception_Propagation);
+
+-- smaller image: no tables of enumeration literal names; image attributes are not used in flight code, so nothing is lost 
+pragma Discard_Names;
