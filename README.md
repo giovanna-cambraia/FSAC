@@ -81,27 +81,25 @@ A result that was not archived with the commit hash and the tool version does no
 
 ### 5.1 Run history
 
-One row per archived run. Leave empty until a run exists.
-
 | Date | Commit | GNATprove version | Level | Total checks | Proved | Unproved | Archive folder |
 | :--- | :--- | :--- | :-: | :-: | :-: | :-: | :--- |
-| | | | | | | | |
+| 2026-11-11 | <hash> | <versão> | 2 | 106 | 106 | 0 | proof/results/2026-11-11_<hash> |
 
-### 5.2 Status per unit (fill from the latest run)
-
-Expected difficulty is my estimate before any run; the last column is for the real result.
+### 5.2 Status per unit (latest run, 2026-11-11)
 
 | Unit | Main obligations | Expected difficulty | Result |
 | :--- | :--- | :--- | :--- |
-| `fsac.ads` | compile-time consistency of timing constants | none | |
-| `fsac-types.ads` | compile-time overflow margins | none | |
-| `fsac-fixed_math` | no overflow in `Add_Sat`, `Sub_Sat`, `Neg`, `Abs_Q`; all `Post` | low | |
-| `fsac-fixed_math` / `Mul_Q` | overflow of the 64-bit product (nonlinear) | **medium**: may need `--level=3` or the 16-bit split | |
-| `fsac-control-params` | predicates well-formed | low | |
-| `fsac-control-gain_schedule` / `Find_Segment` | loop invariant, both halves of `Post` | low to medium | |
-| `fsac-control-gain_schedule` / `Schedule_Gain` | `Pre` of `Blend_Factor`, P1, P3 (quantifier instantiation) | **medium** | |
-| `fsac-control-pitch_rate_damper` / `Step` | C1..C7 | **medium**: rate-limit argument, relies on the HINT assertions | |
-| `fsac-control-pitch_rate_damper` / `Rebase`, `Make_Params` | `Post`, predicate on the result | low | |
+| `fsac.ads` | compile-time consistency of timing constants | none | compiled clean |
+| `fsac-types.ads` | compile-time overflow margins | none | compiled clean |
+| `fsac-fixed_math` | no overflow, all `Post` | low | all proved |
+| `fsac-fixed_math` / `Mul_Q` | overflow of the 64-bit product | medium | proved at level 2 with the two HINT assertions |
+| `fsac-control-params` | predicates well-formed | low | all proved |
+| `fsac-control-gain_schedule` / `Find_Segment` | loop invariant, `Post` | low to medium | proved |
+| `fsac-control-gain_schedule` / `Schedule_Gain` | `Pre` of `Blend_Factor`, P1, P3 | medium | proved |
+| `fsac-control-pitch_rate_damper` / `Step` | C1..C7 | medium | proved (rate-limit step relied on the HINT assertions) |
+| `fsac-control-pitch_rate_damper` / `Rebase`, `Make_Params` | `Post`, predicate | low | proved |
+
+Test run, same date: `test_core`, 127 passed, 0 failed (hand-derived expected values; independent Python model pending).
 
 ### 5.3 Register of unproved checks and how each was closed
 
