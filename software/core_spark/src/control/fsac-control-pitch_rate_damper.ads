@@ -9,29 +9,36 @@
 --  Requirements: HLR-CTL-0020 .. HLR-CTL-0034 (placeholder IDs)
 --
 --  PURPOSE
-   -- the inner-loop pitch-rate damper: the controller that, 200 times per second, compares the pilot's (or outer loop's) commanded pitch rate with the measured pitch rate 
-   -- and produces an elevator command that drives the difference toward zero. On a statically unstable airframe this loop is what keeps the aircraft flyable; losing it for 120 
-   -- ms canthe structure
+   -- the inner-loop pitch-rate damper: the controller that, 200 times per
+   -- second, compares the pilot's (or outer loop's) commanded pitch rate with
+   -- the measured pitch rate and produces an elevator command that drives
+   -- the difference toward zero. On a statically unstable airframe this loop
+   -- is what keeps the aircraft flyable; losing it for 120 ms can break
+   -- the structure
 
 --  THE CONTROL LAW (executed once per minor frame, in this order)
-
-   --      e      = q_cmd - q_meas                  rate error, saturated
-   --      P      = Kq * e                          proportional term
-   --      I'     = clamp (I + Ki_Dt * e,           integral term with
-   --                      -I_lim, +I_lim)          position clamp
+   --       e      = q_cmd - q_meas                   rate error, saturated
+   --       P      = Kq * e                           proportional term
+   --       I'     = clamp (I + Ki_Dt * e,            integral term with
+   --                      -I_lim, +I_lim)           position clamp
    --                (not updated if the output is saturated and the error
    --                 pushes further into the saturation: anti-windup)
-   --      u      = P + I'                          unlimited demand
-   --      u_sat  = clamp (u, -Out_Limit, +Out_Limit)     position limit
-   --      u_out  = last + clamp (u_sat - last,           surface rate limit
-   --                             -Rate_Limit, +Rate_Limit)
-
-   -- "last" is the command issued in the previous frame; the command is a normalized surface position (+-1.0 = full travel); conversion to the physical surface sign and 
-   --  to actuator units happens in the actuator command partition, not here
+   --       u      = P + I'                           unlimited demand
+   --       u_sat  = clamp (u, -Out_Limit, +Out_Limit)     position limit
+   --       u_out  = last + clamp (u_sat - last,           surface rate limit
+   --                              -Rate_Limit, +Rate_Limit)
+   --
+   -- "last" is the command issued in the previous frame; the command is a
+   -- normalized surface position (+-1.0 = full travel); conversion to the
+   -- physical surface sign and to actuator units happens in the actuator
+   -- command partition, not here
 
 --  INPUT VALIDITY RULE
-   -- if the input is flagged invalid by the upstream voter, the law does NOT compute; it repeats its last command, freezes the integrator, and reports Input_Invalid, it 
-   -- counts how many consecutive frames this has happened (Hold); deciding to revert to another mode is the mode logic's job; the damper never guesses a measurement
+   -- if the input is flagged invalid by the upstream voter, the law does NOT
+   -- compute; it repeats its last command, freezes the integrator, and
+   -- reports Input_Invalid, it counts how many consecutive frames this has
+   -- happened (Hold); deciding to revert to another mode is the mode logic's
+   -- job; the damper never guesses a measurement
 
 --  PROPERTIES GUARANTEED BY THE CONTRACT (each is proved by GNATprove)
    --    C1  Position limit.   |command| <= Out_Limit, every frame.
@@ -52,21 +59,27 @@
    --                          monitor-lane comparison meaningful.
 
 --  WHAT THE PROOF DOES NOT SHOW (important for the safety case)
-   -- the proof shows that the software cannot overflow, cannot exceed its limits, and implements the law above, it does NOT show that this law stabilizes the airframe; 
-   -- closed-loop stability, gain and phase margins, and behaviour at the actuator limits come from analysis and imulation of the plant (models/, verification/mil/), and 
-   -- are separate evidence in the safety case. A correct implementation of a wrong gain is still a wrong controller, keep the two kinds of evidence distinct
+   -- the proof shows that the software cannot overflow, cannot exceed its
+   -- limits, and implements the law above, it does NOT show that this law
+   -- stabilizes the airframe; closed-loop stability, gain and phase margins,
+   -- and behaviour at the actuator limits come from analysis and simulation
+   -- of the plant (models/, verification/mil/), and are separate evidence in
+   -- the safety case. A correct implementation of a wrong gain is still a
+   -- wrong controller, keep the two kinds of evidence distinct
 
 --  STATE AND REUSE
-   -- the state is passed in and out explicitly (no package variables); each FSAC lane has its own instance in its own partition memory, and the test bench can run thousands
-   -- of independent instances.
+   -- the state is passed in and out explicitly (no package variables); each
+   -- FSAC lane has its own instance in its own partition memory, and the test
+   -- bench can run thousands of independent instances.
 
 --  TIMING SHAPE
--- straight-line code, no loops: a fixed number of Fixed_Math calls; the WCET is the same for every input and is measured against the 0.60 ms window W4 of the schedule 
--- (Part 1, section 4)
+   -- straight-line code, no loops: a fixed number of Fixed_Math calls; the
+   -- WCET is the same for every input and is measured against the 0.60 ms
+   -- window W4 of the schedule (Part 1, section 4)
 
-with Fsac.Types;                use Fsac.Types;
-with Fsac.Fixed_Math;           use Fsac.Fixed_Math;
-with Fsac.Control.Params;       use Fsac.Control.Params;
+with Fsac.Types;                 use Fsac.Types;
+with Fsac.Fixed_Math;            use Fsac.Fixed_Math;
+with Fsac.Control.Params;        use Fsac.Control.Params;
 with Fsac.Control.Gain_Schedule; use Fsac.Control.Gain_Schedule;
 
 package Fsac.Control.Pitch_Rate_Damper
@@ -109,7 +122,8 @@ is
       and then State.Last_Cmd >= -Params.Out_Limit
       and then State.Last_Cmd <= Params.Out_Limit)
      with Global => null;
-   --  the state fits inside the limits in force; Initial_State is consistent with every valid parameter set (all limits are positive)
+   --  the state fits inside the limits in force; Initial_State is consistent
+   --  with every valid parameter set (all limits are positive)
 
    --  building the parameters for the current frame
    type Limit_Set is record
@@ -125,8 +139,10 @@ is
    --  the limits that do not depend on flight condition.
 
    Min_Proportional_Gain : constant Gain := 6_554;
-   --  0.10; floor applied to the scheduled Kq so the controller always has negative feedback (the Pitch_Rate_Params predicate requires Kq > 0); the value is a control-design 
-   --  parameter: replace it with the figure from the control law design report
+   --  0.10; floor applied to the scheduled Kq so the controller always has
+   --  negative feedback (the Pitch_Rate_Params predicate requires Kq > 0);
+   --  the value is a control-design parameter: replace it with the figure
+   --  from the control law design report
 
    function Make_Params
      (Gains  : Scheduled_Gains;
@@ -139,7 +155,7 @@ is
          and then Make_Params'Result.Out_Limit = Limits.Out_Limit
          and then Make_Params'Result.Integrator_Limit = Limits.Integrator_Limit
          and then Make_Params'Result.Rate_Limit = Limits.Rate_Limit;
-   --  combines the scheduled gains with the fixed limits into a parameter set that satisfies the Pitch_Rate_Params predicate by construction
+   --  combines scheduled gains with fixed limits into a valid parameter set
 
    --  Operations
    procedure Rebase
@@ -150,7 +166,7 @@ is
        Post   =>
          Consistent (State, Params)
          and then State.Hold = State.Hold'Old;
-   --  brings a state inside the limits of a new parameter set, used only when the limits change (a configuration or mode change), never in the normal frame loop
+   --  brings state inside limits of a new parameter set during reconfigurations
 
    procedure Step
      (State  : in out Damper_State;

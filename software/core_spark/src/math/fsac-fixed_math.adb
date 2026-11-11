@@ -9,42 +9,49 @@
 --  Requirements: HLR-NUM-0010 .. HLR-NUM-0018 (placeholder IDs)
 
 -- PURPOSE
-   -- implements the contracts declared in fsac-fixed_math.ads, each body is deliberately tiny: straight-line code or a single if/elsif chain, no loops, no recursion,
-   -- no allocation, no exceptions; that keeps the structural-coverage argument simple (every branch is reached by the corner-value tests) and the proof obligations small
+   -- implements the contracts declared in fsac-fixed_math.ads, each body is
+   -- deliberately tiny: straight-line code or a single if/elsif chain, no
+   -- loops, no recursion, no allocation, no exceptions; that keeps the
+   -- structural-coverage argument simple (every branch is reached by the
+   -- corner-value tests) and the proof obligations small
 
 -- WHAT GNATPROVE MUST SHOW HERE (and how each item is expected to prove)
    --    Function    Check                                   Expected result
    --    ----------  --------------------------------------  -------------------
    --    Saturate    range check on Q16 (X) conversion       proved from the
-   --                                                         branch conditions
+   --                                                        branch conditions
    --    Clamp       Post (four implications)                proved, case split
    --    Add_Sat     overflow of Wide (A) + Wide (B)         proved: |sum| <= 2**32
    --    Sub_Sat     overflow of Wide (A) - Wide (B)         proved: |diff| <= 2**32
    --    Mul_Q       overflow of Wide (A) * Wide (B)         NONLINEAR, may need
-   --                                                         the guiding asserts
+   --                                                        the guiding asserts
    --    Mul_Q       division check (divisor is a constant)  proved, constant /= 0
    --    Neg         overflow of unary minus                 proved: the range is
-   --                                                         symmetric (Fsac.Types)
+   --                                                        symmetric (Fsac.Types)
    --    Abs_Q       overflow of "abs"                       proved, same reason
    --    To_*        range check on the returned value       proved from branches
 
 -- IF Mul_Q DOES NOT PROVE AT THE FIRST RUN
-   -- the product of two 31-bit values is a non-linear fact, and SMT solvers sometimes need a hint; in order:
+   -- the product of two 31-bit values is a non-linear fact, and SMT solvers
+   -- sometimes need a hint; in order:
       -- 1. run with --level=3 or --level=4 (more provers, longer timeout)
-      -- 2. keep the two pragma Assert statements below; if one of them is reported as unproved, that line shows exactly which bound the solver cannot see
-      -- 3. last resort: replace the product by a loop-free split into 16-bit halves (high and low) and prove each partial product linearly; document the change 
-      -- in ADR-005 and re-review the unit
+      -- 2. keep the two pragma Assert statements below; if one of them is
+      --    reported as unproved, that line shows exactly which bound the
+      --    solver cannot see
+      -- 3. last resort: replace the product by a loop-free split into 16-bit
+      --    halves (high and low) and prove each partial product linearly;
+      --    document the change in ADR-005 and re-review the unit
 
--- CODING RULES APPLIED 
+-- CODING RULES APPLIED
    -- * No raw "+", "-", "*" on Q16 outside this package
    -- * intermediate values live in Wide and are narrowed only through Saturate
    -- * every function has Global => null (no hidden state)
 
 package body Fsac.Fixed_Math
-   with SPARK_Mode => On 
-is 
+   with SPARK_Mode => On
+is
 
-   -- saturate 
+   -- saturate
    function Saturate (X : Wide) return Q16 is
    begin
       if X > Wide (Q16'Last) then
@@ -56,8 +63,8 @@ is
       end if;
    end Saturate;
 
-   -- clamp 
-  function Clamp (X, Lo, Hi : Q16) return Q16 is
+   -- clamp
+   function Clamp (X, Lo, Hi : Q16) return Q16 is
    begin
       if X < Lo then
          return Lo;
@@ -83,8 +90,10 @@ is
    function Mul_Q (A, B : Q16) return Q16 is
       Product : constant Wide := Wide (A) * Wide (B);
    begin
-      --  guiding assertions for the prover; they restate what Fsac.Types already guarantees (both factors are below 2**31 in magnitude, so the product is below 2**62) in 
-      --  the form that the overflow check on the line above needs
+      --  guiding assertions for the prover; they restate what Fsac.Types
+      --  already guarantees (both factors are below 2**31 in magnitude,
+      --  so the product is below 2**62) in the form that the overflow
+      --  check on the line above needs
       pragma Assert (Product >= -(2**62));
       pragma Assert (Product <= 2**62);
 

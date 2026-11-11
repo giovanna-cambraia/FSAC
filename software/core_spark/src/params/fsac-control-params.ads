@@ -9,15 +9,20 @@
 --  Requirements: HLR-CTL-0004 .. HLR-CTL-0012 (placeholder IDs)
 
 -- PURPOSE
-   -- defines the data the tunes the control laws: gains, limits, and the gain schedule over dynamic pressure, it contains no logic 
-   -- that runs in flight; its job is to make an invalid parameter set impossible to construct: every record and table carries a
-   -- predicate that states what "valid" means, and the control code can rely on that as a proved fact 
+   -- defines the data the tunes the control laws: gains, limits, and the gain
+   -- schedule over dynamic pressure, it contains no logic that runs in flight;
+   -- its job is to make an invalid parameter set impossible to construct:
+   -- every record and table carries a predicate that states what "valid" means,
+   -- and the control code can rely on that as a proved fact
 
 -- WHY PARAMETERS ARE A SAFETY ITEM
-   -- on an unstable airframe, a wrong gain is a dangerous as a wrong line of code; gains are produced by the control-law design 
-   -- process (MIL, in models/control_laws/), turned into an Ada constant by a code generator (tools/codegen/), and loaded with the
-   -- software image; predicates here are the last gate: a parameter set that violates them fails to build or fails the debug-time
-   -- predicate check, and is rejected by the loader's consistency test (HLR-CTL-002)
+   -- on an unstable airframe, a wrong gain is a dangerous as a wrong line of
+   -- code; gains are produced by the control-law design process (MIL, in
+   -- models/control_laws/), turned into an Ada constant by a code generator
+   -- (tools/codegen/), and loaded with the software image; predicates here
+   -- are the last gate: a parameter set that violates them fails to build or
+   -- fails the debug-time predicate check, and is rejected by the loader's
+   -- consistency test (HLR-CTL-002)
 
 -- TWO PARAMETERS GROUPS
    --  1. Pitch_Rate_Params   (one set per flight condition, see Gain_Schedule)
@@ -68,29 +73,33 @@
    --         stored inverse; a mismatched table is rejected
 
 -- RESOLUTION NOTE
-   -- a span of 64 kPa gives Inv_Span about 0.0156 (raw 1024), so t is resolved to roughly 0.1 percent of the segment, for gains that
-   -- differ by several units between breakpoints this is well below the effect of sensor noise; the MIL campaign (verification/mil/)
-   -- includes a test that compares the quantized schedule with the real-valued design 
+   -- a span of 64 kPa gives Inv_Span about 0.0156 (raw 1024), so t is resolved
+   -- to roughly 0.1 percent of the segment, for gains that differ by several
+   -- units between breakpoints this is well below the effect of sensor noise;
+   -- the MIL campaign (verification/mil/) includes a test that compares the
+   -- quantized schedule with the real-valued design
 
--- NOTE ON ARITHMETIC IN THIS FILE 
-   -- the predicates compute in Wide because they must be exact; they are evaluated at build and in debug runs (with -gnata) and are
-   -- proved by GNATprove, they are not on the flight path 
+-- NOTE ON ARITHMETIC IN THIS FILE
+   -- the predicates compute in Wide because they must be exact; they are
+   -- evaluated at build and in debug runs (with -gnata) and are proved by
+   -- GNATprove, they are not on the flight path
 
 with Fsac.Types; use Fsac.Types;
 
 package Fsac.Control.Params
-   with Pure, SPARK_Mode => On 
+   with Pure, SPARK_Mode => On
 is
 
-   -- limits on the parameter values themselves 
+   -- limits on the parameter values themselves
    subtype Surface_Limit is Q16 range 0 .. Surface_Cmd_Max_Raw;
-   -- non-negative of a surface command or command change 
+   -- non-negative of a surface command or command change
 
    Max_Integrator_Authority   : constant Surface_Limit := 19_660;
-   -- 0.30 of full travel (0.30 * 6553 = 19660.8, rounded down so the stated limit is never exceeded), HLR-CTL-0005
+   -- 0.30 of full travel (0.30 * 6553 = 19660.8, rounded down so the
+   -- stated limit is never exceeded), HLR-CTL-0005
 
-   -- pitch-rate damper parameters 
-    type Pitch_Rate_Params is record
+   -- pitch-rate damper parameters
+   type Pitch_Rate_Params is record
       Kq               : Gain;
       Ki_Dt            : Gain;
       Out_Limit        : Surface_Limit;
@@ -106,10 +115,8 @@ is
        and then Pitch_Rate_Params.Integrator_Limit
                   <= Max_Integrator_Authority;
 
-   -- gain schedule over dynamic pressure 
-   num_points  : constant := 8;
-
-    Num_Points : constant := 8;
+   -- gain schedule over dynamic pressure
+   Num_Points : constant := 8;
 
    subtype Point_Index   is Positive range 1 .. Num_Points;
    subtype Segment_Index is Positive range 1 .. Num_Points - 1;

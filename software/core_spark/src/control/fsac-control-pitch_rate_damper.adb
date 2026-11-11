@@ -9,17 +9,25 @@
 --  Requirements: HLR-CTL-0020 .. HLR-CTL-0034 (placeholder IDs)
 
 --  PURPOSE
-   -- implements the contracts of fsac-control-pitch_rate_damper.ads; the code follows the law in the specification header step by step; each step is one named constant, so a 
-   -- reviewer can read the body against the equations line by line
+   -- implements the contracts of fsac-control-pitch_rate_damper.ads; the code
+   -- follows the law in the specification header step by step; each step is
+   -- one named constant, so a reviewer can read the body against the equations
+   -- line by line
 
 --  STRUCTURE OF Step
-   -- Invalid input  : repeat the previous command, freeze the integrator, count the frame. No arithmetic on the measurement
-   -- Valid input    : error -> P term -> candidate integrator -> anti-windup test -> demand -> position limit -> rate limit -> status -> new state
+   -- Invalid input : repeat previous command, freeze integrator, count frame.
+   --                 No arithmetic on the measurement.
+   -- Valid input   : error -> P term -> candidate integrator ->
+   --                 anti-windup test -> demand -> position limit ->
+   --                 rate limit -> status -> new state
 
 --  ANTI-WINDUP, IN WORDS
-   -- the integrator accumulates error, if the output is already at its limit and the error would push it further in the same direction, more accumulation only stores a debt 
-   -- that must be paid back later, with an overshoot; so in that situation the integrator is frozen at its previous value, it is still clamped to its authority limit in every
-   -- case, which is what the contract proves (C3)
+   -- the integrator accumulates error, if the output is already at its limit
+   -- and the error would push it further in the same direction, more
+   -- accumulation only stores a debt that must be paid back later, with an
+   -- overshoot; so in that situation the integrator is frozen at its previous
+   -- value, it is still clamped to its authority limit in every case, which
+   -- is what the contract proves (C3)
 
 --  WHAT GNATPROVE MUST SHOW HERE
    --    Item                             Expected result
@@ -34,18 +42,25 @@
    --    Step C6 (status truth)           proved from the branch conditions
 
 --  WHERE TROUBLE IS MOST LIKELY
-   -- the rate-limit argument (C2) needs the prover to know that Sub_Sat and Add_Sat did not saturate there; they did not, because every operand is at most 1.0 in magnitude, 
-   -- so sums and differences stay below 3.0 (raw 196 608), far inside the Q16 range; the assertions marked HINT state those exact equalities, if the prover still fails:
-   --      1. run with --level=3 on this unit,
-   --      2. check which HINT assertion is reported unproved: that is the
-   --         fact it cannot see,
-   --      3. as a last resort, replace the failing Saturate-based equality by
-   --         an explicit range lemma in Fsac.Fixed_Math.
+   -- the rate-limit argument (C2) needs the prover to know that Sub_Sat and
+   -- Add_Sat did not saturate there; they did not, because every operand is at
+   -- most 1.0 in magnitude, so sums and differences stay below 3.0
+   -- (raw 196 608), far inside the Q16 range; the assertions marked HINT state
+   -- those exact equalities, if the prover still fails:
+   --       1. run with --level=3 on this unit,
+   --       2. check which HINT assertion is reported unproved: that is the
+   --          fact it cannot see,
+   --       3. as a last resort, replace the failing Saturate-based equality by
+   --          an explicit range lemma in Fsac.Fixed_Math.
 
 --  WHY THE NUMBERS NEVER SATURATE IN THE POSITION/RATE STAGE
-   -- Prev and U_Sat both lie in [-1.0, +1.0]; Step_Req = U_Sat - Prev lies in [-2.0, +2.0]. Prev + Step_Lim lies between Prev and U_Sat (the rate limiter only shortens the 
-   -- step,  never lengthens or reverses it), so it is again inside [-Out_Limit, +Out_Limit]; the P and I terms before that point may saturate (Gain 16.0 times error 16.0 is 
-   -- 256.0, which fits, but sums can grow); that is harmless because the next operation is the position limit
+   -- Prev and U_Sat both lie in [-1.0, +1.0]; Step_Req = U_Sat - Prev lies in
+   -- [-2.0, +2.0]. Prev + Step_Lim lies between Prev and U_Sat (the rate
+   -- limiter only shortens the step, never lengthens or reverses it), so it is
+   -- again inside [-Out_Limit, +Out_Limit]; the P and I terms before that
+   -- point may saturate (Gain 16.0 times error 16.0 is 256.0, which fits, but
+   -- sums can grow); that is harmless because the next operation is the
+   -- position limit
 
 package body Fsac.Control.Pitch_Rate_Damper
   with SPARK_Mode => On
@@ -127,7 +142,7 @@ is
             --  what the output would be if the integrator were updated
             Demand_Cand : constant Q16 := Add_Sat (P_Term, I_Cand);
 
-            --  anti-windup: freeze when saturated and the error pushes on
+            --  anti-windup: freeze when saturated and error pushes on
             Windup : constant Boolean :=
               (Demand_Cand > Out_Lim and then Err > 0)
               or else (Demand_Cand < Neg_Out and then Err < 0);
@@ -147,13 +162,15 @@ is
               Clamp (Step_Req, Neg (Params.Rate_Limit), Params.Rate_Limit);
             U_Out    : constant Q16 := Add_Sat (Prev, Step_Lim);
          begin
-            --  HINT: no saturation in the position/rate stage; all operands are within one full travel, so these sums and differences are exact
+            --  HINT: no saturation in the position/rate stage; all operands
+            --  are within one full travel, so these operations are exact
             pragma Assert
               (Wide (Step_Req) = Wide (U_Sat) - Wide (Prev));
             pragma Assert
               (Wide (U_Out) = Wide (Prev) + Wide (Step_Lim));
 
-            --  the rate limiter only shortens the step, so the result lies between Prev and U_Sat, both inside the position limit
+            --  rate limiter only shortens the step, so result lies between
+            --  Prev and U_Sat, both inside the position limit
             pragma Assert (U_Out >= Neg_Out);
             pragma Assert (U_Out <= Out_Lim);
 
