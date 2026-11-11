@@ -77,6 +77,7 @@ project Fsac_Core is
         ("-gnat2012",       --  Ada 2012 language mode
          "-gnatwa",         --  all warnings
          "-gnatwe",         --  warnings are errors
+         "-gnatw.X",        --  Constraint_Error disabled
          "-gnato",          --  overflow checks enabled
          "-gnatVa",         --  validity checks on all scalar uses
          "-gnatyM120",      --  style: maximum line length 120
