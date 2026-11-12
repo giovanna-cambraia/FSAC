@@ -369,10 +369,7 @@ static fsac_sensor_status_t evaluate(const fsac_sensor_state_t *state, const fsa
 
 
 // public read function
-fsac_sensor_status_t fsac_sensor_read(fsac_sensor_state_t * state,
-                                      const fsac_sensor_cfg_t * cfg,
-                                      const volatile fsac_sensor_raw_t * raw,
-                                      uint32_t frame,
+fsac_sensor_status_t fsac_sensor_read(fsac_sensor_state_t * state, const fsac_sensor_cfg_t * cfg, const volatile fsac_sensor_raw_t * raw, uint32_t frame, 
                                       fsac_sensor_sample_t * out)
 {
     fsac_sensor_status_t status = FSAC_SENSOR_ERR_NULL;

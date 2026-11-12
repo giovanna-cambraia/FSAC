@@ -230,6 +230,7 @@ uint16_t fsac_sensor_crc16(const fsac_sensor_raw_t * snapshot);
  *     out   : receives the sample, written on EVERY call, including errors
  *   returns the same code that is stored in out->status; when it returns anything but FSAC_SENSOR_OK, out->valid is 0U and out->value is 0 (rule R7)
 */
-fsac_sensor_status_t fsac_sensor_read(fsac_sensor_state_t * state, fsac_sensor_cfg_t * cfg, const volatile fsac_sensor_raw_t * raw, uint32_t frame, fsac_sensor_sample_t * out);
+fsac_sensor_status_t fsac_sensor_read(fsac_sensor_state_t * state, const fsac_sensor_cfg_t * cfg, const volatile fsac_sensor_raw_t * raw, uint32_t frame, 
+                                      fsac_sensor_sample_t * out);
 
 #endif 
