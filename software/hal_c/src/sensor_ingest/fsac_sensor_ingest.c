@@ -171,20 +171,16 @@ fsac_q16_t fsac_sensor_scale(int32_t counts, const fsac_sensor_cfg_t * cfg)
 
 
 // small helpers
+/* Precondition: cfg is not NULL. Both callers check that first, at the public
+   boundary (fsac_sensor_init, fsac_sensor_read), so it is not checked twice
+   (ADR-008). */
 static bool config_ok(const fsac_sensor_cfg_t * cfg)
 {
-    bool ok = false;
-
-    if (cfg != NULL)
-    {
-        ok = (cfg->scale_q16 > 0)
-          && (cfg->min_valid >= FSAC_Q16_MIN)
-          && (cfg->max_valid <= FSAC_Q16_MAX)
-          && (cfg->min_valid < cfg->max_valid)
-          && (cfg->max_step > 0);
-    }
-
-    return ok;
+    return (cfg->scale_q16 > 0)
+        && (cfg->min_valid >= FSAC_Q16_MIN)
+        && (cfg->max_valid <= FSAC_Q16_MAX)
+        && (cfg->min_valid < cfg->max_valid)
+        && (cfg->max_step > 0);
 }
 
 static uint32_t sat_inc(uint32_t value)

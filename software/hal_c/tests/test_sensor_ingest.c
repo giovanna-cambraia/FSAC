@@ -46,9 +46,7 @@
  *   With coverage (statement and branch):
  *   add  --coverage -O0  to the command, run, then
  *   gcov -b test_sensor_ingest-fsac_sensor_ingest.gcda
- *   Expected: 100% of lines; 73 of 74 branch outcomes. The missing one is
- *   the cfg == NULL branch inside config_ok, which no caller can reach
- *   (defensive code, justified in misra/README.md).
+ *   Expected: 100% of lines and 100% of branch outcomes (72 of 72).
 */
 
 #include <stddef.h>
@@ -235,6 +233,8 @@ static void test_layout(void)
     check_i64("L-13 offset reserved", (int64_t)offsetof(fsac_sensor_sample_t, reserved), 10);
 
     check_i64("L-14 total sensors", (int64_t)FSAC_TOTAL_SENSORS, 18);
+    check_i64("L-15 defined flag bits", (int64_t)FSAC_HWFLAG_DEFINED_MASK, 0x000F);
+    check_i64("L-16 fault mask is every bit", (int64_t)FSAC_HWFLAG_ANY_FAULT, 0xFFFF);
 }
 
  // I: initialization and configuration check
@@ -417,14 +417,22 @@ static void test_read_hw_flags(void)
         expect("R-20 hardware fault flag", rd(&s, &CFG_A, 1U, &o), FSAC_SENSOR_ERR_HW, &o, 0);
     }
 
-    // bits outside the fault mask are ignored by the driver (see notes)
+    /* Fail closed (ADR-007): ANY set bit is a fault, defined or not. */
     fresh(&s, &CFG_A);
     publish(1U, 1100, 0x0010U);
-    expect("R-21 unknown flag bit 4 is ignored", rd(&s, &CFG_A, 1U, &o), FSAC_SENSOR_OK, &o, 1000);
+    expect("R-21 unknown flag bit 4 is a fault", rd(&s, &CFG_A, 1U, &o), FSAC_SENSOR_ERR_HW, &o, 0);
 
     fresh(&s, &CFG_A);
     publish(1U, 1100, 0x8000U);
-    expect("R-22 unknown flag bit 15 is ignored", rd(&s, &CFG_A, 1U, &o), FSAC_SENSOR_OK, &o, 1000);
+    expect("R-22 unknown flag bit 15 is a fault", rd(&s, &CFG_A, 1U, &o), FSAC_SENSOR_ERR_HW, &o, 0);
+
+    fresh(&s, &CFG_A);
+    publish(1U, 1100, 0xFFFFU);
+    expect("R-23 all flag bits set is a fault", rd(&s, &CFG_A, 1U, &o), FSAC_SENSOR_ERR_HW, &o, 0);
+
+    fresh(&s, &CFG_A);
+    publish(1U, 1100, 0x0000U);
+    expect("R-24 no flag set is accepted", rd(&s, &CFG_A, 1U, &o), FSAC_SENSOR_OK, &o, 1000);
 }
 
 static void test_read_sequence(void)

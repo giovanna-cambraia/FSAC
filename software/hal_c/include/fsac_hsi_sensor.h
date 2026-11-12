@@ -42,7 +42,7 @@
  *   2 configuration consistent      ERR_CONFIG
  *   3 mailbox not torn (seq_begin = seq_end)   ERR_TORN
  *   4 CRC of the snapshot           ERR_CRC
- *   5 FPGA fault flags clear        ERR_HW
+ *   5 FPGA hw_flags all zero        ERR_HW
  *   6 sequence number advanced      ERR_STALE (no change) / ERR_SEQ (jump)
  *   7 scaled value inside the plausible range  ERR_RANGE
  *   8 change since last valid sample small enough   ERR_STEP
@@ -139,11 +139,15 @@ typedef struct
 
 FSAC_STATIC_ASSERT(sizeof(fsac_sensor_raw_t) == 20U, "mailbox must be 20 bytes");
 
-#define FSAC_HWFLAG_OVERRANGE   ((uint16_t)0x0001U)  // input beyond converter range 
-#define FSAC_HWFLAG_ADC_FAULT   ((uint16_t)0x0002U)  // converter self-test failed   
-#define FSAC_HWFLAG_LINK_FAULT  ((uint16_t)0x0004U)  // sensor link error            
-#define FSAC_HWFLAG_BIT_FAIL    ((uint16_t)0x0008U)  // built-in test failed         
-#define FSAC_HWFLAG_ANY_FAULT   ((uint16_t)0x000FU)
+/* hw_flags is written by the FPGA. FAIL CLOSED (ADR-007): a sample is
+ * accepted only when hw_flags == 0. Any set bit, including a bit this
+ * software does not define, makes the sample FSAC_SENSOR_ERR_HW. */
+#define FSAC_HWFLAG_OVERRANGE    ((uint16_t)0x0001U)  /* input beyond converter range */
+#define FSAC_HWFLAG_ADC_FAULT    ((uint16_t)0x0002U)  /* converter self-test failed   */
+#define FSAC_HWFLAG_LINK_FAULT   ((uint16_t)0x0004U)  /* sensor link error            */
+#define FSAC_HWFLAG_BIT_FAIL     ((uint16_t)0x0008U)  /* built-in test failed         */
+#define FSAC_HWFLAG_DEFINED_MASK ((uint16_t)0x000FU)  /* bits named above, diagnostics only */
+#define FSAC_HWFLAG_ANY_FAULT    ((uint16_t)0xFFFFU)  /* mask used by the check: every bit  */
 
 /*
  * per-measurement configuration (read-only at run time)
@@ -189,8 +193,8 @@ typedef struct
 {
     fsac_q16_t           value;      // checked value, or 0 when not valid      
     uint32_t             frame;      // minor-frame number of this read         
-    fsac_sensor_status_t status;     // FSAC_SENSOR_OK or an ERR code           
-    uint8_t              valid;      // 1U valid, 0U invalid                    
+    fsac_sensor_status_t status;     // FSAC_SENSOR_OK or an ERR code            
+    uint8_t              valid;      // 1U valid, 0U invalid                     
     uint16_t             reserved;   // always 0                                
 } fsac_sensor_sample_t;
 
@@ -233,4 +237,4 @@ uint16_t fsac_sensor_crc16(const fsac_sensor_raw_t * snapshot);
 fsac_sensor_status_t fsac_sensor_read(fsac_sensor_state_t * state, const fsac_sensor_cfg_t * cfg, const volatile fsac_sensor_raw_t * raw, uint32_t frame, 
                                       fsac_sensor_sample_t * out);
 
-#endif 
+#endif
