@@ -95,7 +95,7 @@ is
      with
        Global => null,
        Post   => Within (Midpoint'Result, A, B);
-   --  (A + B) / 2 with truncation toward zero. Computed in 64 bits, so no overflow is possible. Equal inputs give that same value
+   --  (A + B) / 2 with truncation toward zero. Computed in 64 bits, so no overflow is possible; equal inputs give that same value
 
    --  the vote
    type Vote_Result is record
