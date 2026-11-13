@@ -1,0 +1,38 @@
+--  ===========================================================================
+--  File    : software/platform_bridge/tests/fsac_bridge_tests.gpr
+--  Purpose : Builds the mixed Ada/C test of the bridge with one command
+--
+--  HOW TO USE (from software/platform_bridge/tests/)
+--      gprbuild -P fsac_bridge_tests.gpr
+--      ./test_bridge
+--
+--  WHY IT LISTS SOURCE FOLDERS INSTEAD OF "with"-ING fsac_core.gpr
+--    Same reason as core_spark/tests/fsac_tests.gpr: this test uses
+--    Ada.Text_IO, which fsac.adc forbids in flight code. The units under test
+--    are compiled here without the restriction file. The flight configuration
+--    (restrictions and proof) is checked by building fsac_core.gpr.
+
+project Fsac_Bridge_Tests is
+
+   for Languages use ("Ada", "C");
+
+   for Source_Dirs use
+     (".",
+      "..",
+      "../../core_spark/src",
+      "../../core_spark/src/types",
+      "../../hal_c/src/sensor_ingest");
+
+   for Object_Dir use "../../../build/bridge_tests_obj";
+   for Exec_Dir   use ".";
+   for Main       use ("test_bridge.adb");
+
+   package Compiler is
+      for Default_Switches ("Ada") use
+        ("-gnat2012", "-gnata", "-gnato", "-g", "-O0");
+      for Default_Switches ("C") use
+        ("-std=c11", "-Wall", "-Wextra", "-g", "-O0",
+         "-I" & Project'Project_Dir & "../../hal_c/include");
+   end Compiler;
+
+end Fsac_Bridge_Tests;
