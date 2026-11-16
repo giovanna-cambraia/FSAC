@@ -31,7 +31,7 @@
 --    Two usable     midpoint          disagreement detectable, fault NOT
 --                                     locatable (see "Duplex" below)
 --    One usable     that reading      no cross-check possible
---    None usable    value 0, level Lost   caller must not use the value
+--    None usable    value 0, level Lost  caller must not use the value
 --
 --  DUPLEX: THE MIDPOINT IS A DEFAULT, NOT THE FINAL WORD
 --    With two usable sensors the midpoint is the neutral, stateless choice:
@@ -59,7 +59,8 @@
 --    No loops. A fixed number of comparisons; the WCET does not depend on
 --    the data.
 
---  no "with Fsac.Types" is needed here: a child unit sees the context of its parent (Fsac.Signal_Mgmt already has "with" and "use" for Fsac.Types)
+--  no "with Fsac.Types" is needed here: a child unit sees the context of its
+--  parent (Fsac.Signal_Mgmt already has "with" and "use" for Fsac.Types)
 package Fsac.Signal_Mgmt.Mid_Value_Select
   with SPARK_Mode => On
 is
@@ -77,9 +78,11 @@ is
       + (if Usable (R (2), H (2)) then 1 else 0)
       + (if Usable (R (3), H (3)) then 1 else 0))
      with Global => null;
-   --  number of sensors that are valid and not Failed; written out for the three sensors (checked by the compile-time assertion in the parent)
+   --  number of sensors that are valid and not Failed; written out for the
+   --  three sensors (checked by the compile-time assertion in the parent)
 
-   --  building blocks (public so they can be tested and reused, for example by the cross-lane consensus of the three LRUs)
+   --  building blocks (public so they can be tested and reused, for example
+   --  by the cross-lane consensus of the three LRUs)
    function Median3 (A, B, C : Body_Rate) return Body_Rate
      with
        Global => null,
@@ -95,7 +98,8 @@ is
      with
        Global => null,
        Post   => Within (Midpoint'Result, A, B);
-   --  (A + B) / 2 with truncation toward zero. Computed in 64 bits, so no overflow is possible; equal inputs give that same value
+   --  (A + B) / 2 with truncation toward zero. Computed in 64 bits, so no
+   --  overflow is possible; equal inputs give that same value
 
    --  the vote
    type Vote_Result is record
