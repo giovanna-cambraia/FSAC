@@ -539,3 +539,695 @@ procedure Test_Signal_Mgmt is
          Check ("XC-13b Failed never reverts over 3000 random frames", OK_Latch);
       end;
    end Test_Cross_Check;
+
+   --  OB: Observer
+
+   procedure Test_Observer is
+      P  : constant OBS.Observer_Params := OBS.Default_Params;
+      S  : OBS.Observer_State := OBS.Initial_State;
+   begin
+      --  OB-01 starting point
+      Check ("OB-01a starts without a valid reference", not OBS.Reference_Valid (S, P));
+      Check ("OB-01b not initialized, age at its cap",
+             (not S.Initialized) and then S.Age = OBS.Age_Frames'Last);
+
+      --  OB-02 the first trusted measurement initializes it
+      OBS.Update (S, P, 0, 0, True);
+      Check ("OB-02 first trusted step initializes",
+             S.Initialized and then S.Age = 0 and then S.Estimate = 0
+             and then OBS.Reference_Valid (S, P));
+
+      --  OB-03 dead reckoning: command 1.0 adds B (0.10 rad/s) in one frame
+      OBS.Update (S, P, 65_536, 0, False);
+      Check ("OB-03 command adds B, age grows",
+             S.Estimate = 6_554 and then S.Age = 1 and then S.Initialized);
+
+      --  OB-04 free response: A * 6554 = 66191 * 6554 / 65536 = 6619 (truncated)
+      Check ("OB-04 free response A", OBS.Predict (S, P, 0) = 6_619);
+
+      --  OB-05 steady-state bias (see the specification): m = 20000 settles
+      --  at L * m / (1 - (1 - L) * A) = 20478, that is 1.024 * m
+      S := OBS.Initial_State;
+      for K in 1 .. 200 loop
+         OBS.Update (S, P, 0, 20_000, True);
+      end loop;
+      Check ("OB-05 settles at the documented bias (about 1.024 x m)",
+             S.Estimate > 20_300 and then S.Estimate < 20_700);
+
+      --  OB-06 the validity window is exactly Max_Age frames
+      for K in 1 .. 8 loop
+         OBS.Update (S, P, 0, 0, False);
+         Check ("OB-06a still valid after" & K'Image & " untrusted frames",
+                OBS.Reference_Valid (S, P) and then S.Age = K);
+      end loop;
+      OBS.Update (S, P, 0, 0, False);
+      Check ("OB-06b invalid after Max_Age + 1 untrusted frames",
+             (not OBS.Reference_Valid (S, P)) and then S.Age = 9);
+
+      --  OB-07 the age saturates; a trusted frame revives the reference
+      for K in 1 .. 40 loop
+         OBS.Update (S, P, 0, 0, False);
+      end loop;
+      Check ("OB-07a age saturates at 24", S.Age = OBS.Age_Frames'Last);
+      Check ("OB-07b stays initialized but invalid",
+             S.Initialized and then not OBS.Reference_Valid (S, P));
+      OBS.Update (S, P, 0, 5_000, True);
+      Check ("OB-07c a trusted frame revives it",
+             OBS.Reference_Valid (S, P) and then S.Age = 0);
+
+      --  OB-08 an unstable open loop is clamped to the Body_Rate range
+      S := (Estimate => 500_000, Age => 0, Initialized => True);
+      for K in 1 .. 50 loop
+         OBS.Update (S, (A => 131_072, B => 0, L => 0, Max_Age => 8), 0, 0, False);
+      end loop;
+      Check ("OB-08 open-loop growth is clamped to +8 rad/s", S.Estimate = Body_Rate'Last);
+
+      --  OB-09 correction gain 0: the measurement does not move the estimate
+      S := OBS.Initial_State;
+      OBS.Update (S, (A => 66_191, B => 6_554, L => 0, Max_Age => 8), 0, 5_000, True);
+      Check ("OB-09 L = 0 ignores the measurement but still initializes",
+             S.Estimate = 0 and then S.Initialized and then S.Age = 0);
+
+      --  OB-10 correction gain 1: the estimate copies the measurement
+      S := OBS.Initial_State;
+      OBS.Update (S, (A => 66_191, B => 6_554, L => 65_536, Max_Age => 8), 0, 5_000, True);
+      Check ("OB-10 L = 1 copies the measurement", S.Estimate = 5_000);
+
+      --  OB-11 the form Cross_Check consumes
+      S := (Estimate => 1_234, Age => 3, Initialized => True);
+      Check ("OB-11a Reference_Of fresh",
+             OBS.Reference_Of (S, P).Valid and then OBS.Reference_Of (S, P).Value = 1_234);
+      S.Age := 9;
+      Check ("OB-11b Reference_Of stale", not OBS.Reference_Of (S, P).Valid);
+
+      --  OB-12 randomized: the correction never overshoots the measurement
+      declare
+         Pred_Before : Body_Rate;
+         OK_Between  : Boolean := True;
+         OK_Dead     : Boolean := True;
+         Cmd         : Surface_Cmd;
+         Meas        : Body_Rate;
+         Trusted     : Boolean;
+      begin
+         for N in 1 .. 2_000 loop
+            S := (Estimate    => Random_Rate,
+                  Age         => Random_Below (25),
+                  Initialized => Random_Below (2) = 1);
+            Cmd := Surface_Cmd (Random_Below (131_073) - 65_536);
+            Meas := Random_Rate;
+            Trusted := Random_Below (2) = 1;
+            Pred_Before := OBS.Predict (S, P, Cmd);
+
+            OBS.Update (S, P, Cmd, Meas, Trusted);
+
+            if Trusted then
+               if not MVS.Within (S.Estimate, Pred_Before, Meas) then
+                  OK_Between := False;
+               end if;
+            elsif S.Estimate /= Pred_Before then
+               OK_Dead := False;
+            end if;
+         end loop;
+         Check ("OB-12a trusted correction stays between prediction and measurement", OK_Between);
+         Check ("OB-12b untrusted update is exactly the prediction", OK_Dead);
+      end;
+   end Test_Observer;
+
+   --  VT: Voter
+
+   function Accepts
+     (Persistence : CC.Persistence_Frames;
+      Max_Age     : OBS.Max_Age_Frames) return Boolean
+   is
+   begin
+      declare
+         Candidate : constant VT.Voter_Params :=
+           (Check => (Threshold => 6_554, Persistence => Persistence),
+            Obs   => (A => 66_191, B => 6_554, L => 19_661, Max_Age => Max_Age));
+      begin
+         return Candidate.Check.Persistence = Persistence;
+      end;
+   exception
+      when Ada.Assertions.Assertion_Error =>
+         return False;
+   end Accepts;
+
+   procedure Test_Voter is
+      P : constant VT.Voter_Params := VT.Default_Params;
+      S : VT.Voter_State := VT.Initial_State;
+      O : VT.Voted;
+   begin
+      --  VT-01 triplex, all agree
+      VT.Step (S, P, Rd (1000, 1010, 1005), 0, O);
+      Check ("VT-01a triplex median",
+             O.Value = 1005 and then O.Level = Triplex and then O.Valid
+             and then O.Trusted and then not O.Aided);
+      Check ("VT-01b the observer is anchored by the first trusted frame",
+             S.Obs.Initialized and then S.Obs.Age = 0);
+
+      --  VT-02 a hard-over on sensor 3 is masked, frame by frame
+      for K in 1 .. 7 loop
+         VT.Step (S, P, Rd (1000, 1010, 40_000), 0, O);
+         Check ("VT-02 masked by the median, frame" & K'Image,
+                O.Value = 1010 and then O.Level = Triplex
+                and then O.Check.Result = CC.Located and then O.Trusted);
+      end loop;
+      Check ("VT-02b the observer was not dragged toward the bad sensor",
+             S.Obs.Estimate < 2_000);
+
+      --  VT-03 the exclusion takes effect in the SAME frame it is decided
+      VT.Step (S, P, Rd (1000, 1010, 40_000), 0, O);
+      Check ("VT-03a sensor 3 failed at the 8th located frame",
+             S.Check (3).Health = Failed and then O.Check.Newly_Failed);
+      Check ("VT-03b value is already the midpoint of the two good sensors",
+             O.Value = 1005 and then O.Level = Duplex and then O.Trusted);
+
+      --  VT-04 duplex, the pair agrees: trusted, not aided
+      VT.Step (S, P, Rd (1000, 1010, 1005), 0, O);
+      Check ("VT-04 duplex after exclusion",
+             O.Level = Duplex and then O.Value = 1005 and then O.Trusted
+             and then not O.Aided);
+
+      --  VT-05 reference-aided duplex: sensor 2 now hard-over, sensor 3 gone
+      for K in 1 .. 7 loop
+         VT.Step (S, P, Rd (1000, 30_000, 0, VC => False), 0, O);
+         Check ("VT-05 aided frame" & K'Image,
+                O.Aided and then O.Level = Simplex and then O.Value = 1000
+                and then (not O.Trusted) and then O.Check.Outlier = 2
+                and then S.Check (2).Health = Suspect);
+      end loop;
+      VT.Step (S, P, Rd (1000, 30_000, 0, VC => False), 0, O);
+      Check ("VT-05b the 8th located frame excludes sensor 2",
+             S.Check (2).Health = Failed and then O.Check.Newly_Failed
+             and then O.Value = 1000 and then O.Level = Simplex);
+
+      --  VT-06 afterwards: one source, no aid needed
+      VT.Step (S, P, Rd (1000, 30_000, 0, VC => False), 0, O);
+      Check ("VT-06 single source afterwards",
+             O.Level = Simplex and then O.Value = 1000 and then not O.Aided
+             and then not O.Trusted);
+
+      --  VT-07 duplex, unresolved, observer never initialized
+      S := VT.Initial_State;
+      VT.Step (S, P, Rd (1000, 21_000, 0, VC => False), 0, O);
+      Check ("VT-07 unresolved duplex: midpoint, reported",
+             O.Value = 11_000 and then O.Level = Duplex
+             and then O.Check.Result = CC.Unresolved
+             and then (not O.Aided) and then not O.Trusted);
+
+      --  VT-08 nothing usable
+      S := VT.Initial_State;
+      VT.Step (S, P, Rd (1, 2, 3, False, False, False), 0, O);
+      Check ("VT-08 lost",
+             O.Level = Lost and then (not O.Valid) and then O.Value = 0
+             and then O.Check.Result = CC.Insufficient and then not O.Trusted);
+
+      --  VT-09 the trust rule, row by row
+      S := VT.Initial_State;
+      VT.Step (S, P, Rd (0, 20_000, 40_000), 0, O);
+      Check ("VT-09a three usable but unresolved: not trusted",
+             O.Level = Triplex and then O.Check.Result = CC.Unresolved
+             and then not O.Trusted);
+      S := VT.Initial_State;
+      VT.Step (S, P, Rd (1000, 0, 0, VB => False, VC => False), 0, O);
+      Check ("VT-09b one usable: not trusted",
+             O.Level = Simplex and then not O.Trusted);
+      S := VT.Initial_State;
+      VT.Step (S, P, Rd (1000, 1_010, 0, VC => False), 0, O);
+      Check ("VT-09c two usable and agreeing: trusted",
+             O.Level = Duplex and then O.Trusted);
+
+      --  VT-10 the observer keeps its age at 0 while trusted frames continue,
+      --  and ages while they do not
+      S := VT.Initial_State;
+      VT.Step (S, P, Rd (1000, 1_010, 1_005), 0, O);
+      VT.Step (S, P, Rd (1000, 1_010, 1_005), 0, O);
+      Check ("VT-10a age 0 while trusted", S.Obs.Age = 0);
+      VT.Step (S, P, Rd (0, 20_000, 40_000), 0, O);
+      Check ("VT-10b age 1 after an untrusted frame", S.Obs.Age = 1);
+      VT.Step (S, P, Rd (1000, 1_010, 1_005), 0, O);
+      Check ("VT-10c a trusted frame resets it", S.Obs.Age = 0);
+
+      --  VT-11 the aided case from every pair of positions and either outlier
+      declare
+         type Pair is record
+            First  : Sensor_Id;
+            Second : Sensor_Id;
+            Third  : Sensor_Id;
+         end record;
+         Pairs : constant array (1 .. 3) of Pair := ((1, 2, 3), (1, 3, 2), (2, 3, 1));
+         All_OK : Boolean := True;
+         Cases  : Natural := 0;
+      begin
+         for Pr in Pairs'Range loop
+            for Which in 1 .. 2 loop
+               declare
+                  Sx : VT.Voter_State := VT.Initial_State;
+                  R  : Reading_Set := Rd (1000, 1000, 1000);
+                  Outlier : constant Sensor_Id :=
+                    (if Which = 1 then Pairs (Pr).First else Pairs (Pr).Second);
+               begin
+                  Cases := Cases + 1;
+                  VT.Step (Sx, P, R, 0, O);                    --  three agree
+                  R (Pairs (Pr).Third).Valid := False;
+                  VT.Step (Sx, P, R, 0, O);                    --  the pair, trusted
+                  R (Outlier).Value := 30_000;
+                  VT.Step (Sx, P, R, 0, O);                    --  outlier hard-over
+                  if not (O.Aided and then O.Level = Simplex and then O.Value = 1000
+                          and then O.Check.Outlier = Outlier)
+                  then
+                     All_OK := False;
+                  end if;
+               end;
+            end loop;
+         end loop;
+         Check ("VT-11 reference-aided duplex, all" & Cases'Image & " position cases", All_OK);
+      end;
+
+      --  VT-12 the exclusion still completes at the boundary of the coupling
+      --        rule (Persistence 8, Max_Age 7: the reference lives just long enough)
+      declare
+         Tight : constant VT.Voter_Params :=
+           (Check => (Threshold => 6_554, Persistence => 8),
+            Obs   => (A => 66_191, B => 6_554, L => 19_661, Max_Age => 7));
+         Sy : VT.Voter_State := VT.Initial_State;
+         R  : Reading_Set := Rd (1000, 1000, 1000, VC => False);
+      begin
+         VT.Step (Sy, Tight, Rd (1000, 1000, 1000), 0, O);
+         VT.Step (Sy, Tight, R, 0, O);
+         R (2).Value := 30_000;
+         for K in 1 .. 8 loop
+            VT.Step (Sy, Tight, R, 0, O);
+         end loop;
+         Check ("VT-12 sensor 2 is excluded with the tightest legal parameters",
+                Sy.Check (2).Health = Failed and then O.Value = 1000);
+      end;
+
+      --  VT-13 the coupling rule is a predicate of the parameters:
+      --        Persistence - 1 <= Max_Age
+      Check ("VT-13a default parameters are accepted", Accepts (8, 8));
+      Check ("VT-13b boundary accepted: 8 and 7", Accepts (8, 7));
+      Check ("VT-13c one short is rejected: 8 and 6", not Accepts (8, 6));
+      Check ("VT-13d persistence 1 is always accepted", Accepts (1, 1));
+      Check ("VT-13e upper limit accepted: 24 and 23", Accepts (24, 23));
+      Check ("VT-13f upper limit one short is rejected: 24 and 22", not Accepts (24, 22));
+   end Test_Voter;
+
+   --  MD: Modes
+
+   Healthy_Inputs : constant MD.Mode_Inputs :=
+     (Level => Triplex, Check_Result => CC.All_Agree, Failed_Sensors => 0,
+      Loop_Status => CTL.Nominal, Healthy_Lrus => 3, Actuator_Degraded => False);
+
+   procedure Test_Modes is
+      S : MD.Mode_State := MD.Initial_State;
+      I : MD.Mode_Inputs;
+   begin
+      --  MD-01 the demand table, row by row
+      Check ("MD-01a healthy: Normal", MD.Demand (0, 0, 0, Healthy_Inputs) = MD.Normal);
+
+      I := Healthy_Inputs; I.Failed_Sensors := 1;
+      Check ("MD-01b one sensor failed: Degraded_1", MD.Demand (0, 0, 0, I) = MD.Degraded_1);
+      I := Healthy_Inputs; I.Healthy_Lrus := 2;
+      Check ("MD-01c two LRUs: Degraded_1", MD.Demand (0, 0, 0, I) = MD.Degraded_1);
+      I := Healthy_Inputs; I.Actuator_Degraded := True;
+      Check ("MD-01d actuator path degraded: Degraded_1", MD.Demand (0, 0, 0, I) = MD.Degraded_1);
+      I := Healthy_Inputs; I.Failed_Sensors := 1; I.Actuator_Degraded := True;
+      Check ("MD-01e sensor and actuator: Degraded_2", MD.Demand (0, 0, 0, I) = MD.Degraded_2);
+
+      I := Healthy_Inputs; I.Failed_Sensors := 2;
+      Check ("MD-01f two sensors failed: Direct", MD.Demand (0, 0, 0, I) = MD.Direct);
+      I := Healthy_Inputs; I.Healthy_Lrus := 1;
+      Check ("MD-01g one LRU: Direct", MD.Demand (0, 0, 0, I) = MD.Direct);
+      I := Healthy_Inputs; I.Healthy_Lrus := 0;
+      Check ("MD-01h no LRU: Fail_Passive", MD.Demand (0, 0, 0, I) = MD.Fail_Passive);
+      I := Healthy_Inputs; I.Failed_Sensors := 3;
+      Check ("MD-01i three sensors failed: Direct (Fail_Passive comes from the lost counter)",
+             MD.Demand (0, 0, 0, I) = MD.Direct);
+
+      --  MD-02 each persistence limit, below and at the boundary
+      Check ("MD-02a unresolved 3: Normal", MD.Demand (3, 0, 0, Healthy_Inputs) = MD.Normal);
+      Check ("MD-02b unresolved 4: Degraded_2", MD.Demand (4, 0, 0, Healthy_Inputs) = MD.Degraded_2);
+      Check ("MD-02c saturated 9: Normal", MD.Demand (0, 9, 0, Healthy_Inputs) = MD.Normal);
+      Check ("MD-02d saturated 10: Degraded_2", MD.Demand (0, 10, 0, Healthy_Inputs) = MD.Degraded_2);
+      Check ("MD-02e lost 11: Normal", MD.Demand (0, 0, 11, Healthy_Inputs) = MD.Normal);
+      Check ("MD-02f lost 12: Fail_Passive", MD.Demand (0, 0, 12, Healthy_Inputs) = MD.Fail_Passive);
+      Check ("MD-02g the worst row wins",
+             MD.Demand (4, 10, 12, Healthy_Inputs) = MD.Fail_Passive);
+
+      --  MD-03 the latch: the mode never improves
+      I := Healthy_Inputs; I.Failed_Sensors := 1;
+      MD.Update (S, I);
+      Check ("MD-03a latches Degraded_1", S.Current = MD.Degraded_1);
+      MD.Update (S, Healthy_Inputs);
+      Check ("MD-03b a healthy frame does not undo it", S.Current = MD.Degraded_1);
+      I := Healthy_Inputs; I.Failed_Sensors := 2;
+      MD.Update (S, I);
+      Check ("MD-03c worsens to Direct", S.Current = MD.Direct);
+      I.Failed_Sensors := 1;
+      MD.Update (S, I);
+      Check ("MD-03d a milder demand does not improve it", S.Current = MD.Direct);
+
+      --  MD-04 counters: consecutive frames, reset when the condition ends
+      S := MD.Initial_State;
+      I := Healthy_Inputs; I.Check_Result := CC.Unresolved;
+      for K in 1 .. 3 loop
+         MD.Update (S, I);
+      end loop;
+      Check ("MD-04a three unresolved frames: counter 3, still Normal",
+             S.Unresolved_Frames = 3 and then S.Current = MD.Normal);
+      MD.Update (S, Healthy_Inputs);
+      Check ("MD-04b the counter resets", S.Unresolved_Frames = 0 and then S.Current = MD.Normal);
+      for K in 1 .. 4 loop
+         MD.Update (S, I);
+      end loop;
+      Check ("MD-04c four consecutive frames: Degraded_2", S.Current = MD.Degraded_2);
+
+      S := MD.Initial_State;
+      I := Healthy_Inputs; I.Loop_Status := CTL.Saturated;
+      for K in 1 .. 9 loop
+         MD.Update (S, I);
+      end loop;
+      Check ("MD-04d nine saturated frames: not yet", S.Current = MD.Normal);
+      MD.Update (S, I);
+      Check ("MD-04e tenth saturated frame: Degraded_2", S.Current = MD.Degraded_2);
+
+      --  MD-05 a long loss of every sensor ends in Fail_Passive at frame 12
+      S := MD.Initial_State;
+      I := Healthy_Inputs; I.Level := Lost;
+      for K in 1 .. 11 loop
+         MD.Update (S, I);
+      end loop;
+      Check ("MD-05a eleven lost frames: not yet", S.Current = MD.Normal and then S.Lost_Frames = 11);
+      MD.Update (S, I);
+      Check ("MD-05b twelfth lost frame: Fail_Passive",
+             S.Current = MD.Fail_Passive and then S.Lost_Frames = 12);
+      MD.Update (S, Healthy_Inputs);
+      Check ("MD-05c Fail_Passive is not undone", S.Current = MD.Fail_Passive);
+      I.Level := Lost;
+      for K in 1 .. 40 loop
+         MD.Update (S, I);
+      end loop;
+      Check ("MD-05d the counter saturates at 24", S.Lost_Frames = 24);
+
+      --  MD-06 Reset is the only way back
+      MD.Reset (S);
+      Check ("MD-06 Reset returns to the initial state", S = MD.Initial_State);
+
+      --  MD-07 Count_Failed
+      Check ("MD-07a none", MD.Count_Failed ((Healthy, Healthy, Healthy)) = 0);
+      Check ("MD-07b one", MD.Count_Failed ((Healthy, Failed, Healthy)) = 1);
+      Check ("MD-07c suspect is not failed", MD.Count_Failed ((Suspect, Failed, Suspect)) = 1);
+      Check ("MD-07d three", MD.Count_Failed ((Failed, Failed, Failed)) = 3);
+
+      --  MD-08 the profiles never increase authority as the mode worsens
+      declare
+         Monotone : Boolean := True;
+      begin
+         for A in MD.Mode loop
+            for B in MD.Mode loop
+               if A <= B
+                 and then (MD.Profile_Of (B).Gain_Scale > MD.Profile_Of (A).Gain_Scale
+                           or else MD.Profile_Of (B).Limit_Scale > MD.Profile_Of (A).Limit_Scale)
+               then
+                  Monotone := False;
+               end if;
+            end loop;
+         end loop;
+         Check ("MD-08 profiles never increase authority as the mode worsens", Monotone);
+      end;
+      Check ("MD-08b only Fail_Passive stops the law",
+             MD.Profile_Of (MD.Direct).Active and then not MD.Profile_Of (MD.Fail_Passive).Active);
+      Check ("MD-08c only Direct and Fail_Passive leave the schedule",
+             MD.Profile_Of (MD.Degraded_2).Scheduled
+             and then not MD.Profile_Of (MD.Direct).Scheduled);
+
+      --  MD-09 Scaled_Params
+      declare
+         Base : constant Fsac.Control.Params.Pitch_Rate_Params :=
+           (Kq => 131_072, Ki_Dt => 655, Out_Limit => 32_768,
+            Integrator_Limit => 6_554, Rate_Limit => 3_277);
+         use type Fsac.Control.Params.Pitch_Rate_Params;
+         N  : constant Fsac.Control.Params.Pitch_Rate_Params :=
+           MD.Scaled_Params (Base, MD.Profile_Of (MD.Normal));
+         D2 : constant Fsac.Control.Params.Pitch_Rate_Params :=
+           MD.Scaled_Params (Base, MD.Profile_Of (MD.Degraded_2));
+         Dr : constant Fsac.Control.Params.Pitch_Rate_Params :=
+           MD.Scaled_Params (Base, MD.Profile_Of (MD.Direct));
+         Tiny : constant Fsac.Control.Params.Pitch_Rate_Params :=
+           (Kq => 100, Ki_Dt => 0, Out_Limit => 2, Integrator_Limit => 1, Rate_Limit => 1);
+         T  : constant Fsac.Control.Params.Pitch_Rate_Params :=
+           MD.Scaled_Params (Tiny, MD.Profile_Of (MD.Direct));
+      begin
+         Check ("MD-09a Normal profile is the identity", N = Base);
+         --  0.70 = 45_875: Kq 131072 -> 91750, Out 32768 -> 22937,
+         --  Rate 3277 -> 2293, Ki_Dt 655 -> 458 (each truncated toward zero)
+         Check ("MD-09b Degraded_2 scales by 0.70",
+                D2.Kq = 91_750 and then D2.Out_Limit = 22_937
+                and then D2.Rate_Limit = 2_293 and then D2.Ki_Dt = 458);
+         Check ("MD-09c the integrator never asks for more than the output",
+                D2.Integrator_Limit <= D2.Out_Limit);
+         --  0.50: Kq 65536, Out 16384, Rate 1638, integrator unchanged (6554 <= 16384)
+         Check ("MD-09d Direct scales by 0.50",
+                Dr.Kq = 65_536 and then Dr.Out_Limit = 16_384
+                and then Dr.Rate_Limit = 1_638 and then Dr.Integrator_Limit = 6_554);
+         Check ("MD-09e the floors keep a tiny set valid",
+                T.Kq = 100 and then T.Out_Limit >= 1 and then T.Rate_Limit >= 1
+                and then T.Integrator_Limit <= T.Out_Limit);
+      end;
+
+      --  MD-10 the precondition of Scaled_Params: a profile that is not Active
+      --        (Fail_Passive) cannot be applied to the damper parameters
+      declare
+         Base : constant Fsac.Control.Params.Pitch_Rate_Params :=
+           (Kq => 131_072, Ki_Dt => 655, Out_Limit => 32_768,
+            Integrator_Limit => 6_554, Rate_Limit => 3_277);
+         Rejected : Boolean := False;
+      begin
+         begin
+            declare
+               Unused : constant Fsac.Control.Params.Pitch_Rate_Params :=
+                 MD.Scaled_Params (Base, MD.Profile_Of (MD.Fail_Passive));
+            begin
+               Rejected := Unused.Kq = 0;   --  not reached when the contract is checked
+            end;
+         exception
+            when Ada.Assertions.Assertion_Error =>
+               Rejected := True;
+         end;
+         Check ("MD-10 Scaled_Params refuses the Fail_Passive profile", Rejected);
+      end;
+
+      --  MD-12 randomized: whatever the inputs, the mode never improves, the
+      --  counters stay inside their bounds and the latch equals max(old, demand)
+      declare
+         Monotone  : Boolean := True;
+         Bounded   : Boolean := True;
+         Exact     : Boolean := True;
+         Prev_Mode : MD.Mode;
+         Frames    : Natural := 0;
+      begin
+         for Run in 1 .. 40 loop
+            MD.Reset (S);
+            for K in 1 .. 300 loop
+               I := (Level             =>
+                       (if Random_Below (16) = 0 then Lost else Triplex),
+                     Check_Result      =>
+                       CC.Decision'Val (Random_Below (4)),
+                     Failed_Sensors    =>
+                       (if Random_Below (8) = 0 then Random_Below (4) else 0),
+                     Loop_Status       =>
+                       CTL.Loop_Status'Val (Random_Below (4)),
+                     Healthy_Lrus      =>
+                       (if Random_Below (50) = 0 then Random_Below (4) else 3),
+                     Actuator_Degraded => Random_Below (20) = 0);
+               Prev_Mode := S.Current;
+               MD.Update (S, I);
+               Frames := Frames + 1;
+
+               if S.Current < Prev_Mode then
+                  Monotone := False;
+               end if;
+               if S.Unresolved_Frames > 24 or else S.Saturated_Frames > 24
+                 or else S.Lost_Frames > 24
+               then
+                  Bounded := False;
+               end if;
+               if S.Current /= MD.Mode'Max
+                    (Prev_Mode,
+                     MD.Demand (S.Unresolved_Frames, S.Saturated_Frames,
+                                S.Lost_Frames, I))
+               then
+                  Exact := False;
+               end if;
+            end loop;
+         end loop;
+         Check ("MD-12a the mode never improves over" & Frames'Image & " random frames", Monotone);
+         Check ("MD-12b counters stay within 24", Bounded);
+         Check ("MD-12c the latch is exactly max (old, demand)", Exact);
+      end;
+   end Test_Modes;
+
+   --  IT: integration fault campaign (Voter -> Modes -> Pitch_Rate_Damper)
+
+   --  40 frames. The three sensors read 1000, 1010 and 1005 (rad/s * 65536,
+   --  tiny differences). The commanded rate is 3000. The "plant" is open loop
+   --  on purpose: the measurement does not react to the surface command, so
+   --  the only difference between two runs is the effect of the fault.
+
+   type Cmd_Trace is array (1 .. 40) of Surface_Cmd;
+
+   procedure Campaign
+     (Fault_From    : Natural;      --  first frame of the sensor 3 hard-over (0: none)
+      Blackout_From : Natural;      --  first frame with every sensor invalid (0: none)
+      Use_Voter     : Boolean;      --  False: a plain average of the three readings
+      Trace         : out Cmd_Trace;
+      Final_Mode    : out MD.Mode;
+      Sensor_3_Failed : out Boolean;
+      First_Fail_Passive : out Natural)
+   is
+      Base : constant Fsac.Control.Params.Pitch_Rate_Params :=
+        (Kq => 131_072, Ki_Dt => 655, Out_Limit => 32_768,
+         Integrator_Limit => 6_554, Rate_Limit => 3_277);
+
+      VS    : VT.Voter_State := VT.Initial_State;
+      MS    : MD.Mode_State := MD.Initial_State;
+      DS    : DMP.Damper_State := DMP.Initial_State;
+      Out_D : DMP.Damper_Output := (Cmd => 0, Status => CTL.Nominal);
+      Vo    : VT.Voted;
+      R     : Reading_Set;
+      Meas  : Body_Rate;
+      Valid : Boolean;
+      Pr    : Fsac.Control.Params.Pitch_Rate_Params;
+   begin
+      First_Fail_Passive := 0;
+
+      for K in Trace'Range loop
+         R := Rd (1000, 1_010, 1_005);
+         if Fault_From /= 0 and then K >= Fault_From then
+            R (3).Value := 40_000;
+         end if;
+         if Blackout_From /= 0 and then K >= Blackout_From then
+            R (1).Valid := False;
+            R (2).Valid := False;
+            R (3).Valid := False;
+         end if;
+
+         if Use_Voter then
+            VT.Step (VS, VT.Default_Params, R, DS.Last_Cmd, Vo);
+            Meas  := Vo.Value;
+            Valid := Vo.Valid;
+            MD.Update
+              (MS,
+               (Level             => Vo.Level,
+                Check_Result      => Vo.Check.Result,
+                Failed_Sensors    => MD.Count_Failed (CC.Health_Of (VS.Check)),
+                Loop_Status       => Out_D.Status,
+                Healthy_Lrus      => 3,
+                Actuator_Degraded => False));
+         else
+            Meas  := Body_Rate
+              ((Integer (R (1).Value) + Integer (R (2).Value) + Integer (R (3).Value)) / 3);
+            Valid := True;
+         end if;
+
+         if MS.Current = MD.Fail_Passive and then First_Fail_Passive = 0 then
+            First_Fail_Passive := K;
+         end if;
+
+         if MD.Profile_Of (MS.Current).Active then
+            Pr := MD.Scaled_Params (Base, MD.Profile_Of (MS.Current));
+            DMP.Rebase (DS, Pr);   --  the state follows the limits of the new mode
+            DMP.Step (DS, Pr, (Q_Cmd => 3_000, Q_Meas => Meas, Valid => Valid), Out_D);
+         else
+            --  Fail_Passive: the law is NOT run and the damper state is NOT
+            --  re-based. The surface is held at its last command.
+            Out_D := (Cmd => DS.Last_Cmd, Status => CTL.Input_Invalid);
+         end if;
+
+         Trace (K) := Out_D.Cmd;
+      end loop;
+
+      Final_Mode      := MS.Current;
+      Sensor_3_Failed := VS.Check (3).Health = Failed;
+   end Campaign;
+
+   procedure Test_Integration is
+      Clean, Faulted, Naive, Dark : Cmd_Trace;
+      M : MD.Mode;
+      F3 : Boolean;
+      FP : Natural;
+      Max_Diff : Natural := 0;
+      Max_Naive : Natural := 0;
+      Bounded : Boolean := True;
+      Smooth  : Boolean := True;
+   begin
+      Campaign (0, 0, True, Clean, M, F3, FP);
+      Check ("IT-01a fault-free run stays Normal and never fails a sensor",
+             M = MD.Normal and then not F3 and then FP = 0);
+
+      --  IT-02 sensor 3 stuck at a huge value from frame 6 on
+      Campaign (6, 0, True, Faulted, M, F3, FP);
+      Check ("IT-02a the faulty sensor is excluded", F3);
+      Check ("IT-02b the mode latches Degraded_1", M = MD.Degraded_1 and then FP = 0);
+
+      for K in Clean'Range loop
+         Max_Diff := Natural'Max
+           (Max_Diff, abs (Integer (Faulted (K)) - Integer (Clean (K))));
+
+         if abs (Faulted (K)) > 32_768 then
+            Bounded := False;
+         end if;
+         if K > 1 and then abs (Integer (Faulted (K)) - Integer (Faulted (K - 1))) > 3_277 then
+            Smooth := False;
+         end if;
+      end loop;
+      Check ("IT-02c the command differs from the fault-free run by at most 50 raw"
+             & " (largest:" & Max_Diff'Image & ")", Max_Diff <= 50);
+      Check ("IT-02d the command stays within the output limit", Bounded);
+      Check ("IT-02e the command never moves faster than the rate limit", Smooth);
+
+      --  IT-03 the same fault with a plain average of the sensors (no voter)
+      Campaign (6, 0, False, Naive, M, F3, FP);
+      for K in Clean'Range loop
+         Max_Naive := Natural'Max
+           (Max_Naive, abs (Integer (Naive (K)) - Integer (Clean (K))));
+      end loop;
+      Check ("IT-03 without the voter the same fault moves the command by over 10000"
+             & " (largest:" & Max_Naive'Image & ")", Max_Naive > 10_000);
+
+      --  IT-04 every sensor lost from frame 10: the damper holds, the mode
+      --        reverts to Fail_Passive on the 12th lost frame (frame 21)
+      Campaign (0, 10, True, Dark, M, F3, FP);
+      Check ("IT-04a Fail_Passive is reached on the 12th lost frame (frame 21)", FP = 21);
+      Check ("IT-04b final mode is Fail_Passive", M = MD.Fail_Passive);
+      declare
+         Held : Boolean := True;
+      begin
+         for K in 10 .. 40 loop
+            if Dark (K) /= Dark (9) then
+               Held := False;
+            end if;
+         end loop;
+         Check ("IT-04c the command is held, unchanged, from the first lost frame", Held);
+      end;
+   end Test_Integration;
+
+begin
+   Put_Line ("FSAC signal management and mode logic tests");
+
+   Test_MVS;
+   Test_Cross_Check;
+   Test_Observer;
+   Test_Voter;
+   Test_Modes;
+   Test_Integration;
+
+   New_Line;
+   Put_Line ("passed:" & Natural'Image (Passed));
+   Put_Line ("failed:" & Natural'Image (Failures));
+
+   if Failures > 0 then
+      Ada.Command_Line.Set_Exit_Status (Ada.Command_Line.Failure);
+   end if;
+end Test_Signal_Mgmt;

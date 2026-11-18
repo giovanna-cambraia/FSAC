@@ -280,6 +280,7 @@ is
       P    : Mode_Profile) return Control.Params.Pitch_Rate_Params
      with
        Global => null,
+       Pre    => P.Active,
        Post   =>
          Scaled_Params'Result.Kq <= Base.Kq
          and then Scaled_Params'Result.Ki_Dt <= Base.Ki_Dt
@@ -289,5 +290,12 @@ is
    --  The damper parameters for a mode: never more gain and never more
    --  authority than the base set, and always a VALID parameter set (the
    --  Pitch_Rate_Params predicate holds by construction).
+
+   --  PRECONDITION: the profile must be Active. In Fail_Passive the law is
+   --  not run and the surface is HELD at its last command. The scales of that
+   --  profile mean "no authority at all"; applying them (or re-basing the
+   --  damper state to them) would collapse the held command toward zero and
+   --  drive the surface to neutral. The integration test IT-04 found exactly
+   --  this mistake, so the contract now forbids it.
 
 end Fsac.Modes;
