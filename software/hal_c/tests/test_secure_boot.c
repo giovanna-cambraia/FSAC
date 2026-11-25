@@ -22,6 +22,10 @@
  *   nothing about Ed25519 or SHA-256. They have one useful property: changing
  *   any single byte of the input always changes the output, so tampering
  *   tests need no hard-coded "now fail" switch: the fake fails by itself.
+ *   The key is carried in the signature bytes themselves, so a change of
+ *   key_id also changes the signature. An earlier version derived a hash seed
+ *   from the key and let a key change cancel a data change; the D-05 sweep
+ *   found it.
  *   The manifest is built by a writer in THIS file, from the byte offsets of
  *   secure_boot.md section 5, not by the code under test, so the reader is
  *   checked against an independent description of the format.
@@ -132,15 +136,24 @@ static void fake_digest(const uint8_t * data, size_t len, uint8_t * out)
     }
 }
 
-// fake 64-byte signature: 32 bytes from content and key, 32 bytes from length
+// fake 64-byte signature: 16 bytes from the content, 4 bytes that carry the
+// key handle itself, 12 filler bytes from the content, 32 bytes from the length
 static void fake_mac(uint32_t key, const uint8_t * data, size_t len, uint8_t * out)
 {
-    uint8_t h = roll((uint8_t)((key ^ 0xA5U) & 0xFFU), data, len);
+    uint8_t h = roll(0x5CU, data, len);   // the seed no longer depends on the key
     size_t  i;
 
-    for (i = 0U; i < 32U; i++)
+    for (i = 0U; i < 16U; i++)
     {
         out[i] = (uint8_t)((uint32_t)h + (uint32_t)i);
+    }
+    out[16] = (uint8_t)(key & 0xFFU);
+    out[17] = (uint8_t)((key >> 8) & 0xFFU);
+    out[18] = (uint8_t)((key >> 16) & 0xFFU);
+    out[19] = (uint8_t)((key >> 24) & 0xFFU);
+    for (i = 20U; i < 32U; i++)
+    {
+        out[i] = (uint8_t)((uint32_t)h ^ (uint32_t)i);
     }
     for (i = 32U; i < 64U; i++)
     {
@@ -897,6 +910,7 @@ static void test_decide_tamper(void)
             if (run(&f, tmp, len, &res) == FSB_REASON_OK)
             {
                 never_ok = false;
+                printf("    sweep: byte %u bit %u still boots\n", (unsigned)i, (unsigned)bit);
             }
         }
     }

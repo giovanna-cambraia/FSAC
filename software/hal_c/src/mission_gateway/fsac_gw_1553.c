@@ -71,6 +71,8 @@
  *   PLACEHOLDERS from the illustrative ICD table.
 */
 
+#include <stdbool.h>
+
 #include "fsac_gw_1553.h"
 
 // the whitelist (ICD_mission_bus.md, section 4): PLACEHOLDER rows
