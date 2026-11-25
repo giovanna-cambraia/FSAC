@@ -5,3 +5,20 @@ obj/
 lib/
 alire/
 config/
+
+# Ignore coverage data files
+*.gcov
+*.gcno
+*.gcda
+
+# Ignore executables and object files
+*.exe
+*.o
+*.obj
+
+# Ignore specific generated test binaries and reports
+test_secure_boot_cov*
+test_gw_1553_cov*
+test_gw_1553.exe
+test_secure_boot.exe
+test_sensor_ingest.exe
