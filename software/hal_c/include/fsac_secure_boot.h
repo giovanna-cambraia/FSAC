@@ -119,7 +119,7 @@ _Static_assert(FSB_MAX_MANIFEST == 416U, "eight-image manifest must be 416 bytes
 // illustrative image IDs and one shared size limit; PLACEHOLDERS, the real
 // values come from the partition table and the slot map (one limit per slot)
 #define FSB_IMAGE_ID_FIRST    (1U)
-#define FSB_IMAGE_ID_LAST     (4U)
+#define FSB_IMAGE_ID_LAST     (8U)
 #define FSB_IMAGE_MAX_SIZE    (0x00400000U)
 
 
