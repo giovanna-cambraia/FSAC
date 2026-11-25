@@ -25,22 +25,19 @@ It runs **on the ground, before flight**. This is the only place where the gover
 A restart in flight is not a new image: it re-verifies bytes that passed the same check on the ground. The check never runs on mission data, and an attacker on the mission bus cannot reach it (zone Z2 has no path to the boot chain).
 
 ## 2. Chain of trust
-
-```
-  Hardware Root of Trust (immutable: ROM + one-time fuses)
-    |  holds: hash of the ROOT public key (fuses), monotonic counters, lifecycle state
-    |  verifies, with the root key:
-    v
-  Stage 1: Loader                  (signed; verified by ROM)
-    |  verifies, with a RELEASE key certified by the root:
-    v
-  Signed manifest ---- lists ----> Stage 2: Hypervisor image
-                                   Stage 3: Partition images (P1..P8, per lane)
-                                   Parameter file (A3)
-    |  every listed image is hashed and compared before it runs
-    v
-  Hypervisor starts partitions   (only after the whole manifest verified)
-```
+Hardware Root of Trust (immutable: ROM + one-time fuses)
+| holds: hash of the ROOT public key (fuses), monotonic counters, lifecycle state
+| verifies, with the root key:
+v
+Stage 1: Loader (signed; verified by ROM)
+| verifies, with a RELEASE key certified by the root:
+v
+Signed manifest ---- lists ----> Stage 2: Hypervisor image
+Stage 3: Partition images (P1..P8, per lane)
+Parameter file (A3)
+| every listed image is hashed and compared before it runs
+v
+Hypervisor starts partitions (only after the whole manifest verified)
 
 | Rule | Statement |
 | :-: | :--- |
@@ -87,7 +84,7 @@ The Root of Trust holds two monotonic counters. "Monotonic" means they can be in
 | AR-1 | A manifest is refused if `version_counter < rot_version_counter`. Equal is allowed: it is the same version booting again. |
 | AR-2 | A manifest is refused if `key_epoch < rot_key_epoch`. |
 | AR-3 | **A counter advances only at commit**, never at verification. Commit happens once, on the ground, after the new image verified and the LRU reached its ready state (section 7). |
-| AR-4 | A counter advances to the manifest's value, never beyond it, and never by more than one step per commit chain. (A manifest that jumps the counter far ahead is suspicious; the reader flags it as a warning in the log, section 6.4.) |
+| AR-4 | A counter advances to the manifest's value at commit. A `version_counter` more than one above the stored value is logged as a warning (section 6.4) and does not refuse the boot. |
 | AR-5 | Commit needs weight-on-wheels and the maintenance switch armed (SM-05). It cannot happen in flight. |
 
 Why commit is separate: if the counter advanced at verification, a power loss between "verify" and "reach ready" could leave the unit with a counter ahead of what it can run. Splitting the steps means the counter only moves after the unit has actually run the new software on the ground.
@@ -169,6 +166,7 @@ A parser that tolerates a manifest it does not fully understand is a parser with
 
 | Order | Check | Refusal reason | Related threat |
 | :-: | :--- | :--- | :-: |
+| 0 | Caller passed a NULL or incomplete interface | `BAD_ARGUMENT` | |
 | 1 | Buffer length and structural shape (section 5.5, items 1 to 5) | `MALFORMED` | T-08 |
 | 2 | `key_id` is valid (not 0) | `BAD_KEY_ID` | T-24 |
 | 3 | Lifecycle is production and `key_id` is a test key | `TEST_KEY_IN_PRODUCTION` | T-24 |
@@ -271,7 +269,7 @@ The check does not depend on the signature. A test-key manifest is refused in pr
 | SECR-BOOT-0001 | Every executable image shall be verified against a signed manifest before it runs. |
 | SECR-BOOT-0002 | An image whose version counter is below the stored counter shall be refused. |
 | SECR-BOOT-0003 | The manifest reader shall accept only a buffer that has exactly the format of section 5, and shall refuse any other without reading outside the buffer. |
-| SECR-BOOT-0004 | No manifest field shall drive a policy decision until the signature has verified. |
+| SECR-BOOT-0004 | No manifest field shall cause an acceptance or a counter change until the signature has verified. Fields read earlier may only cause a refusal or select the verification key. |
 | SECR-BOOT-0005 | The boot shall verify the bytes that will execute, after copying them to execution memory. |
 | SECR-BOOT-0006 | A counter shall advance only at commit, on the ground, and never by a failed or unverified boot. |
 | SECR-BOOT-0007 | The boot decision shall have exactly two outcomes, boot or refuse, and no partial start. |
