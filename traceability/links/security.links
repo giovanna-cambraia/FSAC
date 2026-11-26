@@ -1,0 +1,123 @@
+# ===========================================================================
+# FSAC - Flight Stability Augmentation Computer
+# ===========================================================================
+# File        : traceability/security.links
+# Module      : Trace links for the SECR-* requirements
+# Language    : Link file read by traceability/trace_check.py
+# Requirements: SECR-PLAN-0001 (every measure names its evidence)
+#
+# PURPOSE
+#   Says which code, test or document is the evidence for each security
+#   requirement of docs/03_requirements/requirements_index.md, section 4.
+#   Each line is one claim: "this target is evidence of this requirement".
+#   trace_check.py verifies that every target file exists and that every
+#   anchor text is found in it. It does NOT run anything: a "test" link
+#   says which test covers a requirement, never that the test passed
+#   (PSecAC, section 5.2: written is not tested).
+#
+# FORMAT
+#   IDs | kind | target[#anchor]
+#   IDs     one or more IDs separated by commas, or a range "A .. B"
+#   kind    impl, test, proof, review, analysis or inspection
+#   target  path from the repository root; the anchor is text that must
+#           appear in the file (a test group label, a function name, a
+#           heading)
+#
+# RULES USED WHEN WRITING THIS FILE
+#   L-1  A link is a CLAIM OF EVIDENCE, so it is written only where the
+#        evidence exists. No link is written for a check that has not been
+#        done (an inspection nobody ran, a test nobody wrote).
+#   L-2  A "test" link names a test GROUP of the test file, never just the
+#        file, so a reviewer can find the checks.
+#   L-3  A test that has not yet been run on the user's machine is written
+#        as a commented line starting "#GW " and switched on afterwards:
+#            sed -i 's/^#GW //' traceability/security.links
+#   L-4  For a requirement that is satisfied by the CONTENT of a document
+#        (a process requirement), the link names the section that holds it.
+#
+# NOT LINKED ON PURPOSE (see the notes at the end)
+#   SECR-MNT-0001, SECR-DBG-0001, SECR-LOG-0001, SECR-PLAN-0003,
+#   SECR-PLAN-0004, the verification of SECR-ARC-0001, and the proposed
+#   requirements (SECR-GW-0003 .. 0007, SECR-BOOT-0009).
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# secure boot: implementation
+# ---------------------------------------------------------------------------
+SECR-BOOT-0001, SECR-BOOT-0002, SECR-BOOT-0004, SECR-BOOT-0005, SECR-BOOT-0007, SECR-BOOT-0008, SECR-TARA-0003 | impl | software/hal_c/src/secure_boot_loader/fsac_secure_boot.c#fsb_decide
+SECR-BOOT-0003 | impl | software/hal_c/src/secure_boot_loader/fsac_secure_boot.c#fsb_manifest_parse
+SECR-BOOT-0006 | impl | software/hal_c/src/secure_boot_loader/fsac_secure_boot.c#fsb_commit
+
+
+# ---------------------------------------------------------------------------
+# secure boot: tests (test_secure_boot.c, run on the user's machine: 846 passed)
+# ---------------------------------------------------------------------------
+SECR-BOOT-0003 | test | software/hal_c/tests/test_secure_boot.c#P-01 parser
+SECR-BOOT-0003 | test | software/hal_c/tests/test_secure_boot.c#P-02 parser
+SECR-BOOT-0003 | test | software/hal_c/tests/test_secure_boot.c#P-03 parser
+SECR-BOOT-0003 | test | software/hal_c/tests/test_secure_boot.c#P-04 parser
+
+SECR-BOOT-0001, SECR-BOOT-0006, SECR-BOOT-0007 | test | software/hal_c/tests/test_secure_boot.c#D-01 decision
+SECR-BOOT-0007 | test | software/hal_c/tests/test_secure_boot.c#D-03 decision
+SECR-BOOT-0008, SECR-TARA-0003 | test | software/hal_c/tests/test_secure_boot.c#D-04 decision
+SECR-BOOT-0004 | test | software/hal_c/tests/test_secure_boot.c#D-05 decision
+SECR-BOOT-0002 | test | software/hal_c/tests/test_secure_boot.c#D-06 decision
+SECR-BOOT-0001 | test | software/hal_c/tests/test_secure_boot.c#D-07 decision
+SECR-BOOT-0004 | test | software/hal_c/tests/test_secure_boot.c#D-08 decision
+SECR-BOOT-0006 | test | software/hal_c/tests/test_secure_boot.c#C-01 commit
+SECR-BOOT-0002, SECR-BOOT-0006 | test | software/hal_c/tests/test_secure_boot.c#S-01 scenario
+SECR-BOOT-0005 | test | software/hal_c/tests/test_secure_boot.c#hash_misuse
+
+
+# ---------------------------------------------------------------------------
+# mission gateway: implementation
+# ---------------------------------------------------------------------------
+SECR-ARC-0001, SECR-GW-0001, SECR-GW-0002 | impl | software/hal_c/src/mission_gateway/fsac_gw_1553.c#fsac_gw_process
+SECR-ARC-0002, SECR-TARA-0004 | impl | software/hal_c/include/fsac_gw_1553.h#no callback and no mode
+
+
+# ---------------------------------------------------------------------------
+# mission gateway: tests (test_gw_1553.c, NOT YET RUN on the user's machine)
+# Switch these on after "passed N, failed 0" has been seen.
+# ---------------------------------------------------------------------------
+SECR-GW-0001 | test | software/hal_c/tests/test_gw_1553.c#G-02 accepted receive
+SECR-GW-0001 | test | software/hal_c/tests/test_gw_1553.c#G-03 field ranges
+SECR-GW-0001 | test | software/hal_c/tests/test_gw_1553.c#G-04 address
+SECR-GW-0002 | test | software/hal_c/tests/test_gw_1553.c#G-05 length sweep
+SECR-GW-0002 | test | software/hal_c/tests/test_gw_1553.c#G-13 deterministic fuzzing
+SECR-ARC-0002, SECR-TARA-0004 | test | software/hal_c/tests/test_gw_1553.c#G-06 each outcome
+
+
+# ---------------------------------------------------------------------------
+# process requirements, satisfied by the content of a document (rule L-4)
+# ---------------------------------------------------------------------------
+SECR-TARA-0001 | inspection | docs/05_security/TARA.md#Coverage: every entry point
+SECR-TARA-0002 | inspection | docs/05_security/TARA.md#Verification each scenario needs
+SECR-TARA-0005, SECR-PLAN-0005 | inspection | docs/05_security/PSecAC.md#Change rule
+SECR-PLAN-0001 | inspection | docs/05_security/PSecAC.md#Activities and verification
+SECR-PLAN-0002 | inspection | docs/05_security/PSecAC.md#What counts as evidence
+
+
+# ---------------------------------------------------------------------------
+# notes: what is deliberately not linked
+# ---------------------------------------------------------------------------
+# SECR-ARC-0001   Only the parser side exists. Its VERIFICATION is the review of
+#                 the memory map for P6 against control state, which has not
+#                 been done (the map does not exist yet). The gateway tests
+#                 test the parser, not the isolation, so they are not linked.
+# SECR-ARC-0002   Partial: the gateway half is the G-06 group above. The
+#                 integration test with the mode logic is planned.
+# SECR-BOOT-0007  Partial: the decision half is linked (D-01, D-03). The "no
+#                 partial start" half belongs to the hypervisor, not built.
+# SECR-GW-0002    A normal run does not show "never writes outside the
+#                 buffer". It needs a run with -fsanitize=address,undefined.
+# SECR-MNT-0001   Needs ICD_maintenance.md and partition P7. Not started.
+# SECR-DBG-0001   Hardware inspection (HW_PHAC). Not started.
+# SECR-LOG-0001   Needs partition P8. Not built.
+# SECR-PLAN-0003  To be satisfied by the verification campaign document.
+# SECR-PLAN-0004  Needs a repository inspection (a scan for private keys).
+#                 Not done. The rule is stated in secure_boot.md, K-1, but a
+#                 statement of a rule is not evidence that it holds.
+# Proposed IDs    SECR-GW-0003 .. 0007 and SECR-BOOT-0009 are not defined yet,
+#                 so nothing is linked to them.
