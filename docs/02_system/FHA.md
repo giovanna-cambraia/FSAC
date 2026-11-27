@@ -143,15 +143,24 @@ Phases used: **G** ground, **T** takeoff and landing, **C** cruise and manoeuvre
 
 | TARA scenarios | Failure condition |
 | :--- | :--- |
-| T-01, T-04, T-05 (gateway compromise spreading into Z0) | FC-24, FC-23 |
+| T-01 (gateway compromise spreading into Z0) | FC-24, FC-23 |
+| T-02, T-03, T-06 (unlisted, out-of-range or replayed advisory data) | FC-23 |
+| T-04 (flooding) | FC-24, FC-07 |
+| T-05 (gateway reaching control state) | FC-24, FC-02 |
 | T-07 (security reaction used as a weapon) | FC-24 |
-| T-08, T-09, T-10, T-14, T-21 to T-24 (modified software or parameters) | FC-21, FC-06 |
-| T-11, T-12 (maintenance session in flight, latch reset) | FC-22, FC-14 |
-| T-13 (wrong signed file loaded by mistake) | FC-25 |
-| T-15, T-16 (CCDL injection or flooding) | FC-18, FC-05 |
-| T-18, T-19 (sensor spoofing) | FC-08, FC-09 |
-| T-20 (EMI corrupting a sensor bus) | FC-13 |
-| T-25, T-26 (log flooding or tampering) | FC-19 |
+| T-08 (modified software installed) | FC-21, FC-02 |
+| T-09, T-14, T-17, T-22, T-23, T-24 (rollback, debug access, boot glitching, source change, key theft, test key) | FC-21 |
+| T-10 (modified parameters) | FC-06 |
+| T-11 (maintenance session in flight) | FC-22 |
+| T-12 (latch reset through the maintenance session) | FC-14, FC-11 |
+| T-13 (wrong signed file loaded) | FC-25 |
+| T-15 (CCDL injection) | FC-05, FC-18 |
+| T-16 (CCDL flooding) | FC-18 |
+| T-18 (one sensor spoofed) | FC-08 |
+| T-19 (two sensors spoofed) | FC-09 |
+| T-20 (EMI on a sensor bus) | FC-13 |
+| T-21 (toolchain compromise) | FC-21, FC-02 |
+| T-25, T-26 (audit log flooding or tampering) | none: no direct safety effect |
 
 ## 9. What this document does not cover
 
